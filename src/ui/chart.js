@@ -46,6 +46,23 @@ function thresholdStroke(u, si, s) {
   return g;
 }
 
+// A heavier line at $0 on the left axis, drawn under the data lines.
+function zeroLine(u, color) {
+  const sc = u.scales.y;
+  if (!(sc && sc.min < 0 && sc.max > 0) && !(sc && (sc.min === 0 || sc.max === 0))) return;
+  const y = Math.round(u.valToPos(0, 'y', true));
+  const { left, width } = u.bbox;
+  const ctx = u.ctx;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2 * (window.devicePixelRatio || 1);
+  ctx.beginPath();
+  ctx.moveTo(left, y);
+  ctx.lineTo(left + width, y);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function cssVar(name, fallback) {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   return v || fallback;
@@ -82,6 +99,7 @@ export function Chart({ series, dates, range, height = 300, refLines = [], syncK
     const data = sample(dates, all, i0, i1);
     const grid = cssVar('--border', '#e5e7eb');
     const axisColor = cssVar('--muted', '#6b7280');
+    const zeroColor = cssVar('--faint', '#94a0ae');
     const rightOnly = all.filter((s, k) => onRight[k] && !hidden.has(keys[k]));
     const opts = {
       width: Math.max(280, el.clientWidth),
@@ -109,6 +127,7 @@ export function Chart({ series, dates, range, height = 300, refLines = [], syncK
         }))
       ],
       hooks: {
+        drawAxes: [u => zeroLine(u, zeroColor)],
         // Clicking a name in the legend shows/hides it; remember that for the next rebuild.
         setSeries: [(u, idx, o) => {
           if (idx == null || !o || !('show' in o)) return;
