@@ -141,12 +141,12 @@ export function Compare() {
         <${RangePicker} value=${years} onChange=${setYears} start=${plan.asOf} maxDays=${ref.run.N - 1} />
       </div>
       <p class="small muted" style="margin:6px 16px 0">${mode === 'difference' ? `How far each alternative is ahead of (above zero) or behind (below zero) ${scenarioName(plan, refId)}.` : 'Each scenario on the same scale.'}</p>
-      <${Chart} series=${mainSeries} dates=${ref.run.dates} range=${rangeFor(ref.run, years)} height=${300} refLines=${mode === 'difference' ? [{ value: 0, label: scenarioName(plan, refId), color: '#94a3b8' }] : []} syncKey="cmp" />
+      <${Chart} series=${mainSeries} dates=${ref.run.dates} range=${rangeFor(ref.run, years)} height=${300} viewKey="compare" refLines=${mode === 'difference' ? [{ value: 0, label: scenarioName(plan, refId), color: '#94a3b8' }] : []} syncKey="cmp" />
     </div>
 
     <div class="card">
       <div class="card-head"><h3>Can I sustain it? · Operating cash</h3><span class="small muted">Lowest point in each period is shown</span></div>
-      <${Chart} series=${cashSeries} dates=${ref.run.dates} range=${rangeFor(ref.run, Math.min(years, 10))} height=${240} refLines=${[{ value: plan.settings.cashFloor, label: 'Floor', color: '#dc2626' }, { value: 0, label: 'Zero', color: '#94a3b8' }]} syncKey="cmp" />
+      <${Chart} series=${cashSeries} dates=${ref.run.dates} range=${rangeFor(ref.run, Math.min(years, 10))} height=${240} viewKey="compare-cash" refLines=${[{ value: plan.settings.cashFloor, label: 'Floor', color: '#dc2626' }, { value: 0, label: 'Zero', color: '#94a3b8' }]} syncKey="cmp" />
     </div>
 
     <${Scorecard} plan=${plan} runs=${runs} refId=${refId} lens=${lens} />

@@ -266,6 +266,8 @@ export function importLegacy(json, opts = {}) {
   }
   absentFeatures(json, plan, report);
   ui.chartLines = chartLinesFrom(json, plan);
+  const right = rightAxisFrom(json, plan, ui.chartLines);
+  if (right.length) ui['chart:overview'] = { hidden: [], right };
   const vr = json.viewRange;
   if (vr?.start && vr?.end) {
     const yrs = Math.round((new Date(vr.end) - new Date(vr.start)) / (365.25 * 86400000));
@@ -410,6 +412,19 @@ function chartLinesFrom(json, plan) {
   return [...new Set(keys)];
 }
 
+// Lines that sat on the old right-hand axis keep doing so.
+function rightAxisFrom(json, plan, lines) {
+  const right = [];
+  for (const key of lines) {
+    const [type, id] = key.split(':');
+    const item = type === 'acct' ? plan.accounts.find(a => a.id === id) : plan.debts.find(d => d.id === id);
+    const old = [...(json.accounts || []), ...(json.loans || [])].find(x => item && same(x.name, item.name) && x.rightAxis);
+    if (old) right.push(key);
+  }
+  if (json.netWorthRightAxis) right.push('lens');
+  return right;
+}
+
 function absentFeatures(json, plan, report) {
   const absent = message => report.push({ level: 'absent', message });
   const named = list => list.map(g => `"${g.name}"`).join(', ');
@@ -419,8 +434,7 @@ function absentFeatures(json, plan, report) {
     .filter(n => !plan.accounts.some(a => same(a.name, n)) && !plan.debts.some(d => same(d.name, n)));
   const txPlotted = Object.values(json.transactionPlotOptions || {}).filter(Boolean).length;
   if (plotted.length || txPlotted) absent(`Chart lines for individual transactions${plotted.length ? ` (${plotted.join(', ')})` : ''}: the chart can show accounts, debts and totals (“+ Add line…”); a transaction's effect shows up in its account.`);
-  const rightAxis = [...(json.accounts || []), ...(json.loans || [])].filter(x => x.rightAxis).length;
-  if (rightAxis || json.netWorthRightAxis || json.yAxisFrozen) absent('Right-hand axis and frozen Y scale: Paths uses one axis that rescales; click a line in the legend to hide it when scales differ a lot.');
+  if (json.yAxisFrozen) absent('Frozen Y scale: the chart always rescales to the lines shown. Put small lines on the right-hand axis (the “R” on each line) instead.');
   const iso = plan.flows.filter(f => f.unitId && /\biso\b|option/i.test(f.name));
   if (iso.length) absent(`Stock options (${iso.map(f => `"${f.name}"`).join(', ')}): strike price, exercise and AMT aren't modeled — vested options arrive as free shares, as before.`);
   for (const u of json.units || []) {

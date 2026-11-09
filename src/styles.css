@@ -309,11 +309,12 @@ details.more[open] > summary { margin-bottom: 10px; }
 /* chart range: presets, with small ± nudges underneath */
 .range-picker { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .nudge-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.nudges { display: inline-flex; align-items: center; gap: 1px; }
-.nudges button { border: 0; background: transparent; padding: 2px 5px; border-radius: 5px; font-weight: 600; font-size: 11.5px; line-height: 1.4; color: var(--muted); cursor: pointer; font-variant-numeric: tabular-nums; }
-.nudges button:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
-.nudges button:disabled { opacity: .35; cursor: default; }
-.nudge-sep { width: 1px; height: 12px; margin: 0 3px; background: var(--border-strong); }
+.nudges { display: inline-flex; align-items: center; gap: 3px; }
+.nudges button { height: 24px; padding: 0 7px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); font-weight: 650; font-size: 11.5px; color: var(--muted); cursor: pointer; font-variant-numeric: tabular-nums; box-shadow: 0 1px 1px rgba(0, 0, 0, .04); }
+.nudges button:hover:not(:disabled) { background: var(--surface-3); color: var(--text); border-color: var(--muted); }
+.nudges button:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
+.nudges button:disabled { opacity: .4; cursor: default; }
+.nudge-sep { width: 1px; height: 16px; margin: 0 4px; background: var(--border-strong); }
 .range-label { font-size: 11.5px; color: var(--faint); white-space: nowrap; }
 @media (max-width: 640px) {
   .range-picker { align-items: flex-start; }
@@ -352,8 +353,19 @@ body.is-sorting, body.is-sorting * { cursor: grabbing !important; user-select: n
 .combo-list li.none { color: var(--muted); cursor: default; }
 .combo-list mark { background: none; color: var(--primary); font-weight: 750; }
 .line-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 10px 16px 0; }
-.line-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 4px 0 10px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); font-size: 13px; font-weight: 600; }
+.line-chip { display: inline-flex; align-items: center; height: 28px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); font-size: 13px; font-weight: 600; overflow: hidden; }
+.line-chip .chip-main { display: inline-flex; align-items: center; gap: 6px; height: 100%; padding: 0 8px 0 10px; border: 0; background: none; font: inherit; color: var(--text); cursor: pointer; }
+.line-chip .chip-main:hover { background: var(--surface-3); }
+.line-chip.off .chip-main { color: var(--faint); text-decoration: line-through; }
+.line-chip.off .dot { opacity: .35; }
 .line-chip .dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
-.line-chip button { width: 22px; height: 22px; border: 0; border-radius: 999px; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
-.line-chip button:hover { background: var(--surface-3); color: var(--text); }
+.line-chip .axis-btn { height: 20px; min-width: 22px; margin-right: 4px; padding: 0 5px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); color: var(--muted); font-size: 11px; font-weight: 750; cursor: pointer; }
+.line-chip .axis-btn:hover { color: var(--text); border-color: var(--muted); }
+.line-chip .axis-btn.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.line-chip .x { width: 22px; height: 22px; margin-right: 3px; border: 0; border-radius: 999px; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
+.line-chip .x:hover { background: var(--surface-3); color: var(--text); }
+.axis-hint { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-size: 12.5px; color: var(--muted); padding: 2px 4px; }
+.lens-help { padding: 6px 16px 0; max-width: 90ch; }
 @media (max-width: 640px) { .combo { width: 100%; } .combo-list { min-width: 0; } }
+.help-btn { width: 26px; height: 26px; flex: none; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--muted); font-weight: 750; font-size: 13px; cursor: pointer; }
+.help-btn:hover, .help-btn.on { color: var(--primary); border-color: var(--primary); }

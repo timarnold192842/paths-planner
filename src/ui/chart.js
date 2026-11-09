@@ -2,6 +2,9 @@
 import { useEffect, useRef } from 'preact/hooks';
 import uPlot from 'uplot';
 import { html, compact } from './h.js';
+import { useUI } from '../store.js';
+
+const EMPTY_VIEW = { hidden: [], right: [] };
 import { windowDays } from './range.js';
 
 export { windowDays, nudgeWindow, durationLabel } from './range.js';
@@ -37,36 +40,53 @@ function cssVar(name, fallback) {
 }
 
 /**
- * series: [{ label, values: Float64Array, color, width?, dash?, fill?, agg? }]
+ * series: [{ key?, label, values: Float64Array, color, width?, dash?, fill?, agg?, axis?: 'right' }]
  * dates: Date[]; range: [i0, i1] day indices
- * refLines: [{ value, label, color }] horizontal reference lines
+ * refLines: [{ value, label, color }] horizontal reference lines (left axis)
+ * viewKey: remember which lines are hidden (and on the right axis) across rebuilds and visits.
+ *   view/onView can be passed instead to control that state from outside.
  */
-export function Chart({ series, dates, range, height = 300, refLines = [], syncKey, yLabel }) {
+export function Chart({ series, dates, range, height = 300, refLines = [], syncKey, yLabel, viewKey, view: viewProp, onView }) {
   const host = useRef(null);
   const plot = useRef(null);
+  const [stored, setStored] = useUI(viewKey ? `chart:${viewKey}` : '__chart-unsaved', EMPTY_VIEW);
+  const local = useRef(EMPTY_VIEW);
+  const view = viewProp || (viewKey ? stored : local.current);
+  const setView = onView || (viewKey ? setStored : v => { local.current = v; });
+  const viewRef = useRef({ view, setView });
+  viewRef.current = { view, setView };
+  const hidden = new Set(view.hidden || []);
+  const right = new Set(view.right || []);
 
   useEffect(() => {
     const el = host.current;
     if (!el || !dates?.length) return undefined;
     const [i0, i1] = range || [0, dates.length - 1];
-    const all = [...series, ...refLines.map(r => ({ label: r.label, constant: r.value, color: r.color, dash: [6, 5], width: 1.5 }))];
+    const all = [...series, ...refLines.map(r => ({ key: `ref:${r.label}`, label: r.label, constant: r.value, color: r.color, dash: [6, 5], width: 1.5 }))];
+    const keys = all.map(s => s.key || s.label);
+    const onRight = all.map((s, k) => !s.constant && (s.axis === 'right' || right.has(keys[k])));
+    const anyRight = onRight.some((r, k) => r && !hidden.has(keys[k]));
     const data = sample(dates, all, i0, i1);
     const grid = cssVar('--border', '#e5e7eb');
     const axisColor = cssVar('--muted', '#6b7280');
+    const rightOnly = all.filter((s, k) => onRight[k] && !hidden.has(keys[k]));
     const opts = {
       width: Math.max(280, el.clientWidth),
       height,
       cursor: { sync: syncKey ? { key: syncKey } : undefined, points: { size: 7 } },
       legend: { live: true },
-      scales: { x: { time: true } },
+      scales: { x: { time: true }, y: {}, r: {} },
       axes: [
         { stroke: axisColor, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid } },
-        { stroke: axisColor, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid }, size: 64, values: (u, vals) => vals.map(v => compact(v)), label: yLabel }
+        { scale: 'y', stroke: axisColor, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid }, size: 64, values: (u, vals) => vals.map(v => compact(v)), label: yLabel },
+        ...(anyRight ? [{ scale: 'r', side: 1, stroke: rightOnly.length === 1 ? rightOnly[0].color : axisColor, grid: { show: false }, ticks: { stroke: grid }, size: 64, values: (u, vals) => vals.map(v => compact(v)) }] : [])
       ],
       series: [
         { value: (u, v) => (v == null ? '' : new Date(v * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })) },
-        ...all.map(s => ({
-          label: s.label,
+        ...all.map((s, k) => ({
+          label: onRight[k] ? `${s.label} (right)` : s.label,
+          scale: onRight[k] ? 'r' : 'y',
+          show: !hidden.has(keys[k]),
           stroke: s.color,
           width: s.width ?? 2,
           dash: s.dash,
@@ -74,7 +94,18 @@ export function Chart({ series, dates, range, height = 300, refLines = [], syncK
           points: { show: false },
           value: (u, v) => (v == null ? '' : compact(v))
         }))
-      ]
+      ],
+      hooks: {
+        // Clicking a name in the legend shows/hides it; remember that for the next rebuild.
+        setSeries: [(u, idx, o) => {
+          if (idx == null || !o || !('show' in o)) return;
+          const key = keys[idx - 1];
+          const { view: cur, setView: save } = viewRef.current;
+          const h = new Set(cur.hidden || []);
+          if (o.show) h.delete(key); else h.add(key);
+          save({ ...cur, hidden: [...h] });
+        }]
+      }
     };
     plot.current = new uPlot(opts, data, el);
     const ro = new ResizeObserver(() => {
@@ -86,7 +117,7 @@ export function Chart({ series, dates, range, height = 300, refLines = [], syncK
       plot.current?.destroy();
       plot.current = null;
     };
-  }, [series, dates, range?.[0], range?.[1], height, JSON.stringify(refLines), syncKey]);
+  }, [series, dates, range?.[0], range?.[1], height, JSON.stringify(refLines), syncKey, (view.right || []).join('|'), viewProp || viewKey ? (view.hidden || []).join('|') : '']);
 
   return html`<div class="chart-wrap" ref=${host}></div>`;
 }

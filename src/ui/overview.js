@@ -7,7 +7,7 @@ import { LENSES, lensSeries } from '../engine/metrics.js';
 import { formatDate, formatMonthYear, parseYMD, addDays, toYMD, todayYMD } from '../engine/dates.js';
 import { Breakdown, yearly } from './breakdown.js';
 import { WhatIf } from './whatif.js';
-import { AddLine, LineChips, customSeries } from './lines.js';
+import { AddLine, SeriesChips, customSeries } from './lines.js';
 
 export const RANGES = [[2, '2Y'], [5, '5Y'], [10, '10Y'], [30, '30Y']];
 
@@ -21,6 +21,13 @@ export function Diagnostics({ diagnostics }) {
   const uniq = [...new Map(diagnostics.map(d => [d.message, d])).values()];
   return html`<div class="notice" role="alert"><span>⚠</span><div>${uniq.slice(0, 4).map(d => html`<div>${d.message}</div>`)}${uniq.length > 4 ? html`<div>…and ${uniq.length - 4} more</div>` : null}</div></div>`;
 }
+
+const LENS_HELP = {
+  afterTaxReal: "After-tax, today's dollars: what you'd keep if you sold everything and paid the taxes (capital gains, 401(k)/IRA income tax, selling costs) — shown in today's purchasing power, so inflation doesn't make the future look richer than it is.",
+  afterTax: 'After-tax: what you would keep after selling everything and paying the taxes, in the dollars of each year (not adjusted for inflation).',
+  netWorthReal: "Net worth, today's dollars: everything you own minus everything you owe, ignoring taxes, adjusted to today's purchasing power.",
+  netWorth: 'Net worth: everything you own minus everything you owe, at face value and in the dollars of each year.'
+};
 
 const LENS_SHORT = { afterTaxReal: "After-tax · today's $", afterTax: 'After-tax', netWorthReal: "Net worth · today's $", netWorth: 'Net worth' };
 
@@ -57,15 +64,17 @@ export function Overview({ scenarioId }) {
   const [lens, setLens] = useUI('lens', 'afterTaxReal');
   const [years, setYears] = useUI('overviewYears', 10);
   const [lines, setLines] = useUI('chartLines', []);
+  const [chartView, setChartView] = useUI('chart:overview', { hidden: [], right: [] });
+  const [showHelp, setShowHelp] = useUI('lensHelp', false);
   const r = getRun(plan, scenarioId);
   const { run, metrics: m, compiled } = r;
   const infl = plan.settings.inflation;
   const lensLabel = LENSES.find(l => l.id === lens)?.label;
 
   const series = useMemo(() => [
-    { label: lensLabel, values: lensSeries(run, lens, infl), color: cssColor('--primary', '#2563eb'), width: 2.5 },
-    { label: 'Operating cash', values: run.series.cash, color: '#16a34a', width: 1.5, agg: 'min' },
-    { label: 'Debt', values: run.series.liabilities, color: '#c2410c', width: 1.25, dash: [4, 4] },
+    { key: 'lens', label: lensLabel, values: lensSeries(run, lens, infl), color: cssColor('--primary', '#2563eb'), width: 2.5 },
+    { key: 'cash', label: 'Operating cash', values: run.series.cash, color: '#16a34a', width: 1.5, agg: 'min' },
+    { key: 'debt', label: 'Debt', values: run.series.liabilities, color: '#c2410c', width: 1.25, dash: [4, 4] },
     ...customSeries(run, plan, lines, lens)
   ], [run, lens, infl, lines.join('|')]);
 
@@ -110,11 +119,13 @@ export function Overview({ scenarioId }) {
     ${m.firstNegative ? html`<div class="notice" role="alert"><span>⚠</span><div>Cash goes negative on <b>${formatDate(m.firstNegative)}</b> and reaches ${money(m.minCash.value)} on ${formatDate(m.minCash.date)}. Add income, trim spending, or fund the gap from another account.</div></div>` : null}
     <div class="card">
       <div class="chart-toolbar">
-        <div class="row lens-row"><${LensPicker} value=${lens} onChange=${setLens} /><${AddLine} plan=${plan} value=${lines} onChange=${setLines} /></div>
+        <div class="row lens-row"><${LensPicker} value=${lens} onChange=${setLens} /><button type="button" class=${cls('help-btn', showHelp && 'on')} aria-expanded=${showHelp} aria-label="What do these measures mean?" title="What do these measures mean?" onClick=${() => setShowHelp(!showHelp)}>?</button><${AddLine} plan=${plan} value=${lines} onChange=${setLines} /></div>
         <${RangePicker} value=${years} onChange=${setYears} start=${plan.asOf} maxDays=${run.N - 1} />
       </div>
-      <${LineChips} plan=${plan} value=${lines} onChange=${setLines} />
-      <${Chart} series=${series} dates=${run.dates} range=${rangeFor(run, years)} height=${320} refLines=${[{ value: floor, label: 'Cash floor', color: '#dc2626' }]} />
+      ${showHelp ? html`<div class="lens-help small muted"><b>${LENS_HELP[lens].split(':')[0]}:</b>${LENS_HELP[lens].slice(LENS_HELP[lens].indexOf(':') + 1)} <span class="faint">After-tax counts what selling would cost you; “today's dollars” removes ${plan.settings.inflation}%/yr inflation; plain “Net worth” does neither.</span></div>` : null}
+      <${SeriesChips} series=${series} view=${chartView} onView=${setChartView} range=${rangeFor(run, years)}
+        removable=${k => lines.includes(k)} onRemove=${k => { setLines(lines.filter(x => x !== k)); setChartView({ ...chartView, hidden: (chartView.hidden || []).filter(x => x !== k), right: (chartView.right || []).filter(x => x !== k) }); }} />
+      <${Chart} series=${series} dates=${run.dates} range=${rangeFor(run, years)} height=${320} refLines=${[{ value: floor, label: 'Cash floor', color: '#dc2626' }]} view=${chartView} onView=${setChartView} />
     </div>
     <${WhatIf} key=${scenarioId} scenarioId=${scenarioId} lens=${lens} years=${years} />
     <div class="grid-2">

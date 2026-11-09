@@ -13,7 +13,7 @@ const fixture = () => ({
   ],
   loans: [
     { id: 'l1', name: 'Promo Card', initial_balance: 10400, monthly_payment: 100, interest_rate: 0, start_date: '2026-01-01', payoff_date: '2027-12-01', day_of_month: 1, isEnabled: true },
-    { id: 'l2', name: 'Car', initial_balance: 20000, monthly_payment: 400, interest_rate: 0.05, start_date: '2025-01-01', payoff_date: '2030-01-01', day_of_month: 5, isEnabled: true, positionIndex: 0 }
+    { id: 'l2', name: 'Car', initial_balance: 20000, monthly_payment: 400, interest_rate: 0.05, start_date: '2025-01-01', payoff_date: '2030-01-01', day_of_month: 5, isEnabled: true, positionIndex: 0, rightAxis: true }
   ],
   transactions: [
     { id: 't1', type: 'BiWeekly', name: 'Paycheck', amount: 5000, units: 'usd', to_account: 'Cash', start_date: '2026-01-01', days_of_month: '15, last', annual_growth: 1.02, split_amount: 5465, split_month: 9, isEnabled: true },
@@ -34,6 +34,7 @@ const fixture = () => ({
     { id: 'g1', name: 'Work', collapsed: false, items: ['t2', 't1', 't3', 't4'], positionIndex: 0 }
   ],
   plotOptions: { Car: true, Cash: true, 'Some sale': true, Groceries: false },
+  yAxisFrozen: true,
   transactionPlotOptions: { t7: true },
   viewRange: { start: '2026-01-01T00:00:00.000Z', end: '2029-01-01T00:00:00.000Z' }
 });
@@ -92,8 +93,9 @@ test('order, folded groups, chart lines and range carry over; missing features a
   assert.deepEqual(Object.keys(ui.planCollapsed), [`flows:${plan.groups[1].id}`]);
   assert.deepEqual(ui.chartLines, [`debt:${plan.debts[0].id}`]);
   assert.equal(ui.overviewYears, 3);
+  assert.deepEqual(ui['chart:overview'].right, [`debt:${plan.debts[0].id}`], 'right-axis lines stay on the right');
   const absent = report.filter(r => r.level === 'absent').map(r => r.message).join('\n');
-  for (const re of [/Account groups/, /individual transactions \(Some sale\)/, /Right-hand axis/, /Stock options/, /Tags/]) assert.match(absent, re);
+  for (const re of [/Account groups/, /individual transactions \(Some sale\)/, /Frozen Y scale/, /Stock options/, /Tags/]) assert.match(absent, re);
 });
 
 test('modernize: false is a literal import', () => {

@@ -76,7 +76,7 @@ export function WhatIf({ scenarioId, lens, years }) {
             <div class="kpi card"><div class="label">At the end</div><div class=${cls('value', cmp.endDelta >= 0 ? 'pos' : 'neg')}>${signed(cmp.endDelta)}</div><div class="sub">${(cmp.endPct * 100).toFixed(1)}%</div></div>
           </div>
           ${top.length ? html`<div class="small muted" style="margin-top:10px">Mostly from: ${top.map(t => `${t.label} (${signed(t.value)})`).join(' · ')}</div>` : null}
-          <${Chart} series=${series} dates=${ref.run.dates} range=${rangeFor(ref.run, years)} height=${200} refLines=${[{ value: 0, label: 'Current', color: '#94a3b8' }]} />
+          <${Chart} series=${series} dates=${ref.run.dates} range=${rangeFor(ref.run, years)} height=${200} viewKey="whatif" refLines=${[{ value: 0, label: 'Current', color: '#94a3b8' }]} />
           ${alt.compiled.diagnostics.length ? html`<div class="notice small">${alt.compiled.diagnostics[0].message}</div>` : null}`}
       </div>
     </div>

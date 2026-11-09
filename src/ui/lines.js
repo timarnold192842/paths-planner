@@ -50,7 +50,7 @@ export function customSeries(run, plan, keys, lensId) {
       for (let i = 0; i < run.N; i++) v[i] = values[i] / def[i];
       values = v;
     }
-    out.push({ label: opts.get(key).label, values, color: lineColor(n), width: 1.75, dash: type === 'debt' ? [5, 4] : undefined });
+    out.push({ key, label: opts.get(key).label, values, color: lineColor(n), width: 1.75, dash: type === 'debt' ? [5, 4] : undefined });
   });
   return out;
 }
@@ -74,17 +74,31 @@ function Highlight({ text, q }) {
   return html`${text.slice(0, i)}<mark>${text.slice(i, i + w.length)}</mark>${text.slice(i + w.length)}`;
 }
 
-export function LineChips({ plan, value, onChange }) {
-  const opts = useMemo(() => new Map(lineOptions(plan).map(o => [o.key, o])), [plan]);
-  const live = value.filter(k => opts.has(k));
-  if (!live.length) return null;
+// Every line on the chart as a chip: click to show/hide, "R" puts it on the right-hand axis,
+// × removes an added line. Suggests the right axis when some lines are dwarfed by others.
+export function SeriesChips({ series, view, onView, removable, onRemove, range }) {
+  const hidden = new Set(view.hidden || []);
+  const right = new Set(view.right || []);
+  const set = (k, on, key) => { const x = new Set(view[k] || []); if (on) x.add(key); else x.delete(key); onView({ ...view, [k]: [...x] }); };
+  const [i0, i1] = range;
+  const peak = s => { let m = 0; for (let i = i0; i <= i1; i++) { const v = Math.abs(s.values[i]); if (v > m) m = v; } return m; };
+  const shown = series.filter(s => !hidden.has(s.key));
+  const left = shown.filter(s => !right.has(s.key)).map(s => [s, peak(s)]);
+  const biggest = Math.max(0, ...left.map(([, p]) => p));
+  const dwarfed = !right.size && !view.noHint ? left.filter(([, p]) => p > 0 && p < biggest / 12).map(([s]) => s) : [];
   return html`<div class="line-chips">
-    ${live.map(k => html`<span class="line-chip" key=${k}>
-      <span class="dot" style=${`background:${lineColor(value.indexOf(k))}`}></span>${opts.get(k).label}
-      <button type="button" aria-label=${`Remove ${opts.get(k).label} from the chart`} onClick=${() => onChange(value.filter(x => x !== k))}>×</button>
+    ${series.map(s => html`<span class=${cls('line-chip', hidden.has(s.key) && 'off')} key=${s.key}>
+      <button type="button" class="chip-main" aria-pressed=${!hidden.has(s.key)} title=${hidden.has(s.key) ? 'Show this line' : 'Hide this line'} onClick=${() => set('hidden', !hidden.has(s.key), s.key)}>
+        <span class="dot" style=${`background:${s.color}`}></span>${s.label}
+      </button>
+      <button type="button" class=${cls('axis-btn', right.has(s.key) && 'on')} aria-pressed=${right.has(s.key)} title=${right.has(s.key) ? 'On the right-hand axis — click to move back to the left' : 'Plot on the right-hand axis (its own scale)'} onClick=${() => set('right', !right.has(s.key), s.key)}>R</button>
+      ${removable(s.key) ? html`<button type="button" class="x" aria-label=${`Remove ${s.label} from the chart`} onClick=${() => onRemove(s.key)}>×</button>` : null}
     </span>`)}
-    ${live.length > 1 ? html`<button type="button" class="linkish small" onClick=${() => onChange([])}>Clear</button>` : null}
-    <span class="small faint">Tip: click a name in the chart legend to hide that line.</span>
+    ${dwarfed.length ? html`<span class="axis-hint">
+      ${dwarfed.map(s => s.label).join(', ')} ${dwarfed.length === 1 ? 'is' : 'are'} hard to see next to ${left.find(([, p]) => p === biggest)?.[0].label}.
+      <button type="button" class="btn sm" onClick=${() => onView({ ...view, right: dwarfed.map(s => s.key) })}>Move to the right axis</button>
+      <button type="button" class="linkish small" onClick=${() => onView({ ...view, noHint: true })}>Dismiss</button>
+    </span>` : null}
   </div>`;
 }
 
