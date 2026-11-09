@@ -121,6 +121,13 @@ export function useUI(key, initial) {
   return [value, set];
 }
 
+// Set several UI preferences at once (e.g. folded groups and chart lines from an import).
+export function setUIValues(values) {
+  ui = { ...ui, ...values };
+  try { localStorage.setItem(UI_KEY, JSON.stringify(ui)); } catch { /* ignore */ }
+  for (const fn of uiListeners) fn();
+}
+
 export function downloadJSON(obj, filename) {
   const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);

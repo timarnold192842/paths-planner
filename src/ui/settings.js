@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import { html } from './h.js';
-import { store, downloadJSON } from '../store.js';
+import { store, downloadJSON, setUIValues } from '../store.js';
 import { normalizePlan, SCHEMA } from '../engine/model.js';
 import { importLegacy, isLegacyForecast } from '../engine/legacy.js';
 import { demoPlan } from '../demo.js';
@@ -33,9 +33,10 @@ export function Settings() {
       setReport(null);
       toast('Plan restored.', 'ok');
     } else if (isLegacyForecast(json)) {
-      const { plan: imported, report: rep } = importLegacy(json, { name: file.name.replace(/\.json$/i, ''), asOf: todayYMD() });
+      const { plan: imported, report: rep, ui } = importLegacy(json, { name: file.name.replace(/\.json$/i, ''), asOf: todayYMD() });
       if (!confirm(`Import "${file.name}" from the old Forecast app? This replaces the current plan (you can undo).`)) return;
       store.replace(imported);
+      if (ui) setUIValues(ui);
       setReport(rep);
       toast(`Imported ${imported.accounts.length} accounts, ${imported.debts.length} debts and ${imported.flows.length} cash flows.`, 'ok', 6000);
     } else {
@@ -48,7 +49,12 @@ export function Settings() {
 
     ${report ? html`<div class="card">
       <div class="card-head"><h3>Import notes</h3><button class="btn sm ghost" onClick=${() => setReport(null)}>Dismiss</button></div>
-      <div class="card-pad stack" style="gap:8px">${report.map(r => html`<div class=${r.level === 'warn' ? 'notice' : 'notice info'}>${r.message}</div>`)}</div>
+      <div class="card-pad stack" style="gap:14px">
+        ${[['change', 'Upgraded to Paths features'], ['warn', 'Please check'], ['info', 'Good to know'], ['absent', 'Not carried over']].map(([lvl, title]) => {
+          const items = report.filter(r => (r.level || 'info') === lvl);
+          return items.length ? html`<div><div class="section-label">${title}</div><div class="stack" style="gap:8px">${items.map(r => html`<div class=${lvl === 'warn' ? 'notice' : 'notice info'}>${r.message}</div>`)}</div></div>` : null;
+        })}
+      </div>
     </div>` : null}
 
     <div class="card">

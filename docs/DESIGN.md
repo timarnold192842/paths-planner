@@ -226,7 +226,14 @@ decisions, not tax filing.
 
 * **Phase 1 (now):** the whole plan is one JSON document (`schema: "paths/1"`) autosaved to
   local storage, with export/import and an importer for the old Forecast format (accounts,
-  loans, transactions, units/price targets, fees, groups, contingent links, sale dates).
+  loans, transactions, units/price targets, fees, groups, contingent links, sale dates). The
+  importer keeps list order, folded groups, plotted accounts/debts and the chart range, and by
+  default upgrades old workarounds: net pay that steps up ≈6.2% of gross each year becomes a
+  paycheck (gross and withholding inferred so take-home matches, with the bonus and RSU vests as
+  wages from the same employer), a card balance plus its same-named "cash from card" deposit
+  becomes one borrowing item with the difference as a fee, and college bills are paid from the
+  matching 529 first. Its notes are grouped as upgraded / please check / good to know / not
+  carried over; `modernize: false` gives a literal import.
 * **Phase 2:** a tiny sync service (Cloudflare Worker + D1, or the Render server planned for
   the portfolio app) storing the document with a revision number. Writes send `If-Match: rev`;
   a conflict shows "this plan changed on another device" with reload / keep-mine. The server

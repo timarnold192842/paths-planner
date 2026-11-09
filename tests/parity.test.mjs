@@ -17,7 +17,7 @@ test('new engine matches the old engine within 0.05% over 30 years once known ol
   for (const l of data.loans) if (names.has(l.name)) l.name += ' (loan)'; // old app double-credits payments when names collide
   for (const t of data.transactions) { delete t.split_amount; delete t.split_month; } // old split amount reset every January
   const old = runLegacy(data, asOf);
-  const { plan } = importLegacy(data, { asOf });
+  const { plan } = importLegacy(data, { asOf, modernize: false });
   plan.settings.tax.enabled = false;
   const r = runScenario(plan, 'baseline');
   assert.equal(r.run.N, old.nw.length);
@@ -31,7 +31,7 @@ test('importing fixes the old double-count of mortgage payments into same-named 
   const data = legacyEmbedded();
   data.fees = [];
   const old = runLegacy(data, asOf);
-  const { plan, report } = importLegacy(data, { asOf });
+  const { plan, report } = importLegacy(data, { asOf, modernize: false });
   plan.settings.tax.enabled = false;
   const r = runScenario(plan, 'baseline');
   // The property whose same-named mortgage has the largest payment.
