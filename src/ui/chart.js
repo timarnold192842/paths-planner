@@ -34,13 +34,26 @@ function sample(dates, series, i0, i1) {
   return [xs, ...ys];
 }
 
+// A line that changes color where it crosses a value (e.g. cash: green above $0, red below).
+function thresholdStroke(u, si, s) {
+  const { top, height } = u.bbox;
+  if (!height) return s.color;
+  const y = u.valToPos(s.threshold ?? 0, u.series[si].scale, true);
+  const f = Math.min(1, Math.max(0, (y - top) / height));
+  const g = u.ctx.createLinearGradient(0, top, 0, top + height);
+  g.addColorStop(0, s.color); g.addColorStop(f, s.color);
+  g.addColorStop(f, s.below); g.addColorStop(1, s.below);
+  return g;
+}
+
 function cssVar(name, fallback) {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   return v || fallback;
 }
 
 /**
- * series: [{ key?, label, values: Float64Array, color, width?, dash?, fill?, agg?, axis?: 'right' }]
+ * series: [{ key?, label, values: Float64Array, color, width?, dash?, fill?, agg?, axis?: 'right',
+ *            below?: color under `threshold` (default 0) }]
  * dates: Date[]; range: [i0, i1] day indices
  * refLines: [{ value, label, color }] horizontal reference lines (left axis)
  * viewKey: remember which lines are hidden (and on the right axis) across rebuilds and visits.
@@ -74,7 +87,7 @@ export function Chart({ series, dates, range, height = 300, refLines = [], syncK
       width: Math.max(280, el.clientWidth),
       height,
       cursor: { sync: syncKey ? { key: syncKey } : undefined, points: { size: 7 } },
-      legend: { live: true },
+      legend: { live: true, markers: { stroke: (u, i) => (i > 0 ? all[i - 1]?.color : undefined) } },
       scales: { x: { time: true }, y: {}, r: {} },
       axes: [
         { stroke: axisColor, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid } },
@@ -87,7 +100,7 @@ export function Chart({ series, dates, range, height = 300, refLines = [], syncK
           label: onRight[k] ? `${s.label} (right)` : s.label,
           scale: onRight[k] ? 'r' : 'y',
           show: !hidden.has(keys[k]),
-          stroke: s.color,
+          stroke: s.below ? (u, si) => thresholdStroke(u, si, s) : s.color,
           width: s.width ?? 2,
           dash: s.dash,
           fill: s.fill,

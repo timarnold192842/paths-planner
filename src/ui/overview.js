@@ -73,7 +73,7 @@ export function Overview({ scenarioId }) {
 
   const series = useMemo(() => [
     { key: 'lens', label: lensLabel, values: lensSeries(run, lens, infl), color: cssColor('--primary', '#2563eb'), width: 2.5 },
-    { key: 'cash', label: 'Operating cash', values: run.series.cash, color: '#16a34a', width: 1.5, agg: 'min' },
+    { key: 'cash', label: 'Operating cash', values: run.series.cash, color: '#16a34a', below: '#dc2626', width: 1.5, agg: 'min' },
     { key: 'debt', label: 'Debt', values: run.series.liabilities, color: '#c2410c', width: 1.25, dash: [4, 4] },
     ...customSeries(run, plan, lines, lens)
   ], [run, lens, infl, lines.join('|')]);
@@ -99,6 +99,8 @@ export function Overview({ scenarioId }) {
     return rows;
   }, [run]);
 
+  // Messages that come and go as the plan changes (cash warnings, diagnostics, axis hints) sit
+  // below the chart, so live edits never shift the chart or the controls above it.
   return html`<div class="stack">
     <div class="page-head">
       <div>
@@ -108,7 +110,6 @@ export function Overview({ scenarioId }) {
     </div>
     ${staleDays > 30 ? html`<div class="notice info"><span>↻</span><div>Your balances are ${staleDays} days old. <a href="#/checkin">Check in</a> to refresh them — it takes a minute and shows how you're tracking against the plan.</div></div>` : null}
     ${lastCheck ? html`<div class="small muted">Last check-in ${formatDate(lastCheck.date)}: actual net worth ${compact(lastCheck.netWorth)} vs ${compact(lastCheck.plannedNetWorth)} expected (<span class=${lastCheck.netWorth >= lastCheck.plannedNetWorth ? 'pos' : 'neg'}>${signed(lastCheck.netWorth - lastCheck.plannedNetWorth)}</span>).</div>` : null}
-    <${Diagnostics} diagnostics=${compiled.diagnostics} />
     <div class="kpis">
       <div class="card kpi"><div class="label">Net worth today</div><div class="value">${compact(today.netWorth[0])}</div><div class="sub">After tax ${compact(today.afterTax[0])}</div></div>
       <div class="card kpi"><div class="label">Operating cash</div><div class="value">${compact(today.cash[0])}</div><div class="sub">Floor ${compact(floor)}</div></div>
@@ -116,7 +117,6 @@ export function Overview({ scenarioId }) {
       <div class="card kpi"><div class="label">In 10 years</div><div class="value">${compact(m.at[10]?.afterTaxReal)}</div><div class="sub">After tax, today's dollars</div></div>
       <div class="card kpi"><div class="label">In ${plan.horizonYears} years</div><div class="value">${compact(m.end.afterTaxReal)}</div><div class="sub">Nominal ${compact(m.end.netWorth)}</div></div>
     </div>
-    ${m.firstNegative ? html`<div class="notice" role="alert"><span>⚠</span><div>Cash goes negative on <b>${formatDate(m.firstNegative)}</b> and reaches ${money(m.minCash.value)} on ${formatDate(m.minCash.date)}. Add income, trim spending, or fund the gap from another account.</div></div>` : null}
     <div class="card">
       <div class="chart-toolbar">
         <div class="row lens-row"><${LensPicker} value=${lens} onChange=${setLens} /><button type="button" class=${cls('help-btn', showHelp && 'on')} aria-expanded=${showHelp} aria-label="What do these measures mean?" title="What do these measures mean?" onClick=${() => setShowHelp(!showHelp)}>?</button><${AddLine} plan=${plan} value=${lines} onChange=${setLines} /></div>
@@ -126,7 +126,10 @@ export function Overview({ scenarioId }) {
       <${SeriesChips} series=${series} view=${chartView} onView=${setChartView} range=${rangeFor(run, years)}
         removable=${k => lines.includes(k)} onRemove=${k => { setLines(lines.filter(x => x !== k)); setChartView({ ...chartView, hidden: (chartView.hidden || []).filter(x => x !== k), right: (chartView.right || []).filter(x => x !== k) }); }} />
       <${Chart} series=${series} dates=${run.dates} range=${rangeFor(run, years)} height=${320} refLines=${[{ value: floor, label: 'Cash floor', color: '#dc2626' }]} view=${chartView} onView=${setChartView} />
+      <${SeriesChips} part="hint" series=${series} view=${chartView} onView=${setChartView} range=${rangeFor(run, years)} />
     </div>
+    ${m.firstNegative ? html`<div class="notice" role="alert"><span>⚠</span><div>Cash goes negative on <b>${formatDate(m.firstNegative)}</b> and reaches ${money(m.minCash.value)} on ${formatDate(m.minCash.date)}. Add income, trim spending, or fund the gap from another account.</div></div>` : null}
+    <${Diagnostics} diagnostics=${compiled.diagnostics} />
     <${WhatIf} key=${scenarioId} scenarioId=${scenarioId} lens=${lens} years=${years} />
     <div class="grid-2">
       <div class="card">

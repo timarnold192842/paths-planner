@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { html, money, compact, signed, cls } from './h.js';
 import { store, useUI } from '../store.js';
 import { describeSchedule, perYear } from '../engine/schedule.js';
-import { formatMonthYear } from '../engine/dates.js';
+import { formatMonthYear, parseYMD, toYMD, addDays, addMonths, addYears } from '../engine/dates.js';
 import { ItemSheet, flowDirection, whenLabel } from './editors.js';
 import { getRun, scenarioName } from './runs.js';
 
@@ -30,8 +30,17 @@ function LiveNum({ value, onCommit, label, width = 92, suffix }) {
   </label>`;
 }
 
+const NUDGE = [['y', -1, '−1y'], ['m', -1, '−1mo'], ['w', -1, '−1w'], ['w', 1, '+1w'], ['m', 1, '+1mo'], ['y', 1, '+1y']];
+const shift = (ymd, unit, n) => { const d = parseYMD(ymd); return toYMD(unit === 'y' ? addYears(d, n) : unit === 'm' ? addMonths(d, n) : addDays(d, 7 * n)); };
+
+// A date box with ± week / month / year nudges underneath.
 function LiveDate({ value, onCommit, label }) {
-  return html`<input type="date" class="live-date" value=${value || ''} aria-label=${label} onChange=${e => onCommit(e.target.value || undefined)} />`;
+  return html`<span class="date-field">
+    <input type="date" class="live-date" value=${value || ''} aria-label=${label} onChange=${e => onCommit(e.target.value || undefined)} />
+    <span class="nudges xs" role="group" aria-label=${`Move ${label}`}>
+      ${NUDGE.map(([u, n, l], i) => html`${i === 3 ? html`<span class="nudge-sep" aria-hidden="true"></span>` : null}<button type="button" disabled=${!value} title=${`${label}: ${n < 0 ? 'earlier' : 'later'} by a ${{ y: 'year', m: 'month', w: 'week' }[u]}`} onClick=${() => onCommit(shift(value, u, n))}>${l}</button>`)}
+    </span>
+  </span>`;
 }
 
 function Switch({ on, onChange, label }) {
@@ -47,26 +56,29 @@ const edit = (coll, id, path, value) => store.update(p => {
   if (value === undefined || value === null && path !== 'enabled') delete o[keys.at(-1)]; else o[keys.at(-1)] = value;
 }, { coalesce: `${id}.${path}` });
 
+// Always the same size and layout (placeholders until something changes), so editing never
+// moves the list under your cursor.
 function Impact({ base, scenarioId, onRebase }) {
   const plan = store.plan;
-  if (base === plan) return html`<div class="impact quiet small muted"><span>Edits re-run <b>${scenarioName(plan, scenarioId)}</b> as you type and apply to every scenario. ⌘Z undoes.</span></div>`;
-  const a = getRun(base, scenarioId).metrics;
-  const b = getRun(plan, scenarioId).metrics;
-  const d10 = (b.at[10]?.afterTaxReal ?? 0) - (a.at[10]?.afterTaxReal ?? 0);
-  const dEnd = b.end.afterTaxReal - a.end.afterTaxReal;
-  const dCash = b.minCashNear.value - a.minCashNear.value;
-  const tone = v => (Math.abs(v) < 1 ? '' : v > 0 ? 'pos' : 'neg');
-  if ([d10, dEnd, dCash].every(v => Math.abs(v) < 0.5)) return html`<div class="impact quiet small muted"><span>No change yet from when you opened this panel. Edits re-run <b>${scenarioName(plan, scenarioId)}</b> as you type and apply to every scenario.</span></div>`;
-  return html`<div class="impact" title=${`Change since you opened this panel · ${scenarioName(plan, scenarioId)} · after tax, today's dollars`}>
+  const changed = base !== plan;
+  const a = changed ? getRun(base, scenarioId).metrics : null;
+  const b = changed ? getRun(plan, scenarioId).metrics : null;
+  const d10 = changed ? (b.at[10]?.afterTaxReal ?? 0) - (a.at[10]?.afterTaxReal ?? 0) : 0;
+  const dEnd = changed ? b.end.afterTaxReal - a.end.afterTaxReal : 0;
+  const dCash = changed ? b.minCashNear.value - a.minCashNear.value : 0;
+  const any = changed && [d10, dEnd, dCash].some(v => Math.abs(v) >= 0.5);
+  const cell = v => (any ? html`<b class=${Math.abs(v) < 1 ? '' : v > 0 ? 'pos' : 'neg'}>${signed(v)}</b>` : html`<b class="faint">—</b>`);
+  return html`<div class=${cls('impact', !any && 'quiet')} title=${`Change since you opened this panel · ${scenarioName(plan, scenarioId)} · after tax, today's dollars. Edits apply to every scenario.`}>
     <div class="impact-row">
-      <span class="muted">Since opening:</span>
-      <span>10 yrs <b class=${tone(d10)}>${signed(d10)}</b></span>
-      <span>${plan.horizonYears} yrs <b class=${tone(dEnd)}>${signed(dEnd)}</b></span>
-      <span>Low cash <b class=${tone(dCash)}>${signed(dCash)}</b>${b.minCashNear.value < 0 ? html` <span class="neg">(${compact(b.minCashNear.value)} ${formatMonthYear(b.minCashNear.date)})</span>` : ''}</span>
+      <span class="muted hide-sm">Since opening</span>
+      <span>10y ${cell(d10)}</span>
+      <span>${plan.horizonYears}y ${cell(dEnd)}</span>
+      <span>Low cash ${cell(dCash)}</span>
     </div>
     <div class="impact-actions">
-      <button type="button" class="btn sm" onClick=${() => { store.replace(base); onRebase(); }}>Revert</button>
-      <button type="button" class="btn sm ghost" title="Keep these edits and measure further changes from here" onClick=${onRebase}>Keep as new start</button>
+      <button type="button" class="btn sm" disabled=${!any} onClick=${() => { store.replace(base); onRebase(); }}>Revert</button>
+      <button type="button" class="btn sm ghost" disabled=${!any} title="Keep these edits and measure further changes from here" onClick=${onRebase}>Keep as new start</button>
+      <span class="small faint impact-note">${any && b.minCashNear.value < 0 ? html`<span class="neg">Cash ${compact(b.minCashNear.value)} ${formatMonthYear(b.minCashNear.date)}</span>` : 'Applies to all scenarios'}</span>
     </div>
   </div>`;
 }
@@ -109,9 +121,9 @@ export function EditPanel({ scenarioId, onClose }) {
     return row('flows', f,
       html`<span class=${cls('sign', dir === 'income' ? 'pos' : '')}>${dir === 'income' ? '+' : dir === 'expense' ? '−' : '⇄'}</span><${LiveNum} value=${f.amount} label=${`${f.name} amount`} suffix=${unit ? unit.symbol : null} onCommit=${v => edit('flows', f.id, 'amount', v ?? 0)} />`,
       `${describeSchedule(f.schedule)}${yearly && f.schedule?.freq !== 'once' ? ` · ${compact(yearly)}/yr` : ''}${f.pay ? ' · gross pay' : ''}`,
-      html`<label>${f.schedule?.freq === 'once' ? 'Date' : 'Starts'} <${LiveDate} value=${f.schedule?.start} label="Start date" onCommit=${v => v && edit('flows', f.id, 'schedule.start', v)} /></label>
-        ${f.schedule?.freq !== 'once' ? html`<label>Ends <${LiveDate} value=${f.schedule?.end} label="End date" onCommit=${v => edit('flows', f.id, 'schedule.end', v)} /></label>
-        <label>Grows <${LiveNum} value=${f.growth} width=${70} suffix="%/yr" label="Growth per year" onCommit=${v => edit('flows', f.id, 'growth', v ?? 0)} /></label>` : null}`);
+      html`<label><span class="pm-l">${f.schedule?.freq === 'once' ? 'Date' : 'Starts'}</span><${LiveDate} value=${f.schedule?.start} label="Start date" onCommit=${v => v && edit('flows', f.id, 'schedule.start', v)} /></label>
+        ${f.schedule?.freq !== 'once' ? html`<label><span class="pm-l">Ends</span><${LiveDate} value=${f.schedule?.end} label="End date" onCommit=${v => edit('flows', f.id, 'schedule.end', v)} /></label>
+        <label><span class="pm-l">Grows</span><${LiveNum} value=${f.growth} width=${70} suffix="%/yr" label="Growth per year" onCommit=${v => edit('flows', f.id, 'growth', v ?? 0)} /></label>` : null}`);
   };
 
   let body;
@@ -132,22 +144,22 @@ export function EditPanel({ scenarioId, onClose }) {
       return row('accounts', a,
         html`<${LiveNum} value=${a.balance} label=${`${a.name} balance`} suffix=${unit ? unit.symbol : null} onCommit=${v => edit('accounts', a.id, 'balance', v ?? 0)} />`,
         `${a.growth ? `${a.growth}%/yr` : 'no growth'}${unit ? ` · ${money(a.balance * unit.price)}` : ''}`,
-        html`<label>Grows <${LiveNum} value=${a.growth} width=${70} suffix="%/yr" label="Growth per year" onCommit=${v => edit('accounts', a.id, 'growth', v ?? 0)} /></label>`);
+        html`<label><span class="pm-l">Grows</span><${LiveNum} value=${a.growth} width=${70} suffix="%/yr" label="Growth per year" onCommit=${v => edit('accounts', a.id, 'growth', v ?? 0)} /></label>`);
     });
   } else if (tab === 'debts') {
     body = plan.debts.filter(match).map(d => row('debts', d,
       html`<${LiveNum} value=${d.balance} label=${`${d.name} balance`} onCommit=${v => edit('debts', d.id, 'balance', v ?? 0)} />`,
       `${d.rate || 0}% · ${d.paymentRule && d.paymentRule !== 'fixed' ? d.paymentRule : `${money(d.payment)}/mo`}${d.payoffDate ? ` · paid off ${formatMonthYear(d.payoffDate)}` : ''}`,
-      html`<label>Rate <${LiveNum} value=${d.rate} width=${70} suffix="%" label="Interest rate" onCommit=${v => edit('debts', d.id, 'rate', v ?? 0)} /></label>
-        <label>Payment <${LiveNum} value=${d.payment} width=${84} label="Monthly payment" onCommit=${v => edit('debts', d.id, 'payment', v ?? 0)} /></label>
-        <label>Pay off on <${LiveDate} value=${d.payoffDate} label="Payoff date" onCommit=${v => edit('debts', d.id, 'payoffDate', v)} /></label>
-        ${d.start || d.proceedsTo ? html`<label>Starts <${LiveDate} value=${d.start} label="Start date" onCommit=${v => edit('debts', d.id, 'start', v)} /></label>` : null}`));
+      html`<label><span class="pm-l">Rate</span><${LiveNum} value=${d.rate} width=${70} suffix="%" label="Interest rate" onCommit=${v => edit('debts', d.id, 'rate', v ?? 0)} /></label>
+        <label><span class="pm-l">Payment</span><${LiveNum} value=${d.payment} width=${84} label="Monthly payment" onCommit=${v => edit('debts', d.id, 'payment', v ?? 0)} /></label>
+        <label><span class="pm-l">Pay off on</span><${LiveDate} value=${d.payoffDate} label="Payoff date" onCommit=${v => edit('debts', d.id, 'payoffDate', v)} /></label>
+        ${d.start || d.proceedsTo ? html`<label><span class="pm-l">Starts</span><${LiveDate} value=${d.start} label="Start date" onCommit=${v => edit('debts', d.id, 'start', v)} /></label>` : null}`));
   } else {
     body = plan.events.filter(match).map(e => row('events', e,
       e.type === 'liquidate' && e.schedule ? html`<span class="small muted">${describeSchedule(e.schedule)}</span>` : html`<${LiveDate} value=${e.date} label=${`${e.name} date`} onCommit=${v => v && edit('events', e.id, 'date', v)} />`,
       `${{ sell: 'Sale', buy: 'Purchase', payoff: 'Payoff', liquidate: 'Share sale' }[e.type] || e.type}${e.assetId ? ` · ${name(e.assetId)}` : ''}${e.debtId ? ` · ${name(e.debtId)}` : ''}`,
-      e.type === 'sell' || e.type === 'buy' ? html`<label>Price <${LiveNum} value=${e.price} width=${100} label="Price (empty = modeled value)" onCommit=${v => edit('events', e.id, 'price', v)} /></label>
-        ${e.type === 'sell' ? html`<label>Costs <${LiveNum} value=${e.costPct} width=${64} suffix="%" label="Selling costs" onCommit=${v => edit('events', e.id, 'costPct', v ?? 0)} /></label>` : null}` : null));
+      e.type === 'sell' || e.type === 'buy' ? html`<label><span class="pm-l">Price</span><${LiveNum} value=${e.price} width=${100} label="Price (empty = modeled value)" onCommit=${v => edit('events', e.id, 'price', v)} /></label>
+        ${e.type === 'sell' ? html`<label><span class="pm-l">Costs</span><${LiveNum} value=${e.costPct} width=${64} suffix="%" label="Selling costs" onCommit=${v => edit('events', e.id, 'costPct', v ?? 0)} /></label>` : null}` : null));
   }
 
   return html`<aside class="edit-panel" aria-label="Edit plan">
