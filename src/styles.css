@@ -445,3 +445,10 @@ body.is-sorting, body.is-sorting * { cursor: grabbing !important; user-select: n
 .prow-more label { gap: 8px; }
 .pm-l { width: 64px; flex: none; }
 @media (max-width: 640px) { .impact-row { font-size: 12.5px; gap: 4px 12px; } }
+.nudges.xs button.today { margin: 0 3px; color: var(--primary); border-color: color-mix(in srgb, var(--primary) 45%, var(--border-strong)); }
+@media (max-width: 640px) {
+  .pm-l { width: 50px; }
+  .prow-more label { gap: 6px; }
+  .nudges.xs button { padding: 0 3px; }
+  .nudges.xs button.today { margin: 0 2px; }
+}

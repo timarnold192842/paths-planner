@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { html, money, compact, signed, cls } from './h.js';
 import { store, useUI } from '../store.js';
 import { describeSchedule, perYear } from '../engine/schedule.js';
-import { formatMonthYear, parseYMD, toYMD, addDays, addMonths, addYears } from '../engine/dates.js';
+import { formatMonthYear, parseYMD, toYMD, addDays, addMonths, addYears, todayYMD } from '../engine/dates.js';
 import { ItemSheet, flowDirection, whenLabel } from './editors.js';
 import { getRun, scenarioName } from './runs.js';
 
@@ -33,12 +33,12 @@ function LiveNum({ value, onCommit, label, width = 92, suffix }) {
 const NUDGE = [['y', -1, '−1y'], ['m', -1, '−1mo'], ['w', -1, '−1w'], ['w', 1, '+1w'], ['m', 1, '+1mo'], ['y', 1, '+1y']];
 const shift = (ymd, unit, n) => { const d = parseYMD(ymd); return toYMD(unit === 'y' ? addYears(d, n) : unit === 'm' ? addMonths(d, n) : addDays(d, 7 * n)); };
 
-// A date box with ± week / month / year nudges underneath.
+// A date box with ± week / month / year nudges and "Today" underneath.
 function LiveDate({ value, onCommit, label }) {
   return html`<span class="date-field">
     <input type="date" class="live-date" value=${value || ''} aria-label=${label} onChange=${e => onCommit(e.target.value || undefined)} />
     <span class="nudges xs" role="group" aria-label=${`Move ${label}`}>
-      ${NUDGE.map(([u, n, l], i) => html`${i === 3 ? html`<span class="nudge-sep" aria-hidden="true"></span>` : null}<button type="button" disabled=${!value} title=${`${label}: ${n < 0 ? 'earlier' : 'later'} by a ${{ y: 'year', m: 'month', w: 'week' }[u]}`} onClick=${() => onCommit(shift(value, u, n))}>${l}</button>`)}
+      ${NUDGE.map(([u, n, l], i) => html`${i === 3 ? html`<button type="button" class="today" disabled=${value === todayYMD()} title=${`${label}: set to today`} onClick=${() => onCommit(todayYMD())}>Today</button>` : null}<button type="button" disabled=${!value} title=${`${label}: ${n < 0 ? 'earlier' : 'later'} by a ${{ y: 'year', m: 'month', w: 'week' }[u]}`} onClick=${() => onCommit(shift(value, u, n))}>${l}</button>`)}
     </span>
   </span>`;
 }
