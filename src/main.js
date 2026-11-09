@@ -3,6 +3,7 @@ import { useEffect } from 'preact/hooks';
 import { html, cls } from './ui/h.js';
 import { store, useStore, useUI } from './store.js';
 import { useRoute } from './ui/nav.js';
+import { loadFromQuery } from './ui/importer.js';
 import { Overview } from './ui/overview.js';
 import { Compare } from './ui/compare.js';
 import { Scenarios } from './ui/scenarios.js';
@@ -93,3 +94,4 @@ function App() {
 }
 
 render(html`<${App} />`, document.getElementById('app'));
+loadFromQuery();

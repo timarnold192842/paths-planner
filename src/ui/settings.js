@@ -1,19 +1,18 @@
 import { useState } from 'preact/hooks';
 import { html } from './h.js';
-import { store, downloadJSON, setUIValues } from '../store.js';
-import { normalizePlan, SCHEMA } from '../engine/model.js';
-import { importLegacy, isLegacyForecast } from '../engine/legacy.js';
+import { store, downloadJSON } from '../store.js';
 import { demoPlan } from '../demo.js';
 import { todayYMD } from '../engine/dates.js';
 import { Field, Num, Text, DateIn, Select, Waterfall, accountOptions } from './editors.js';
 import { toast } from './toast.js';
+import { importPlanJSON, takeImportReport } from './importer.js';
 import { FILING } from '../engine/payroll.js';
 import { navigate } from './nav.js';
 
 export function Settings() {
   const plan = store.plan;
   const s = plan.settings;
-  const [report, setReport] = useState(null);
+  const [report, setReport] = useState(takeImportReport);
   const set = (path, v) => store.update(p => {
     const keys = path.split('.');
     let o = p;
@@ -27,21 +26,8 @@ export function Settings() {
     if (!file) return;
     let json;
     try { json = JSON.parse(await file.text()); } catch { toast('That file is not valid JSON.', 'err'); return; }
-    if (json?.schema === SCHEMA) {
-      if (!confirm(`Replace the current plan with "${json.name || file.name}"? You can undo this.`)) return;
-      store.replace(normalizePlan(json));
-      setReport(null);
-      toast('Plan restored.', 'ok');
-    } else if (isLegacyForecast(json)) {
-      const { plan: imported, report: rep, ui } = importLegacy(json, { name: file.name.replace(/\.json$/i, ''), asOf: todayYMD() });
-      if (!confirm(`Import "${file.name}" from the old Forecast app? This replaces the current plan (you can undo).`)) return;
-      store.replace(imported);
-      if (ui) setUIValues(ui);
-      setReport(rep);
-      toast(`Imported ${imported.accounts.length} accounts, ${imported.debts.length} debts and ${imported.flows.length} cash flows.`, 'ok', 6000);
-    } else {
-      toast("This file isn't a Paths plan or a Forecast export.", 'err');
-    }
+    const rep = importPlanJSON(json, file.name);
+    if (rep !== false) setReport(rep);
   };
 
   return html`<div class="stack">
