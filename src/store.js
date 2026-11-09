@@ -14,6 +14,7 @@ let plan = load();
 let past = [];
 let future = [];
 let saveTimer = null;
+let lastEdit = { key: null, at: 0 };
 let saveState = { status: 'saved', at: Date.now(), error: null };
 
 function load() {
@@ -51,15 +52,20 @@ export const store = {
   canRedo: () => future.length > 0,
 
   // fn receives a mutable draft copy of the plan; return nothing.
+  // opts.coalesce: a key such as "flow-1.amount" — repeated edits to the same thing within a
+  // couple of seconds (typing, nudging) become one undo step.
   update(fn, opts = {}) {
     const draft = clone(plan);
     fn(draft);
     draft.updatedAt = new Date().toISOString();
-    if (!opts.skipHistory) {
+    const now = Date.now();
+    const merge = opts.coalesce && lastEdit.key === opts.coalesce && now - lastEdit.at < 2000 && past.length;
+    if (!opts.skipHistory && !merge) {
       past.push(plan);
       if (past.length > MAX_HISTORY) past.shift();
       future = [];
     }
+    lastEdit = { key: opts.coalesce || null, at: now };
     plan = normalizePlan(draft);
     scheduleSave();
     emit();

@@ -25,6 +25,8 @@ of hand-built transactions; credit lines can act as a safety net when cash runs 
 
 Every result explains itself: the change in net worth is broken down into income, spending,
 taxes, interest, fees, and growth — per year, and as the difference between two scenarios.
+An **Edit plan** panel docks beside the Overview and Compare charts (a bottom drawer on phones): amounts, on/off switches and dates are edited in place, the chart re-runs as you type, and a strip shows the effect since you opened it with a one-click revert. The sidebar collapses to icons.
+
 Quick what-ifs let you try a change without saving anything, and check-ins keep the plan current
 while tracking actual vs. expected.
 
