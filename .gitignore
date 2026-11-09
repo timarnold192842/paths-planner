@@ -1,0 +1,5 @@
+node_modules/
+.DS_Store
+*.local.json
+forecast-export*.json
+paths-*.json
