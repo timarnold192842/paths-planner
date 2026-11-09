@@ -19,6 +19,15 @@ Live: https://timarnold192842.github.io/paths-planner/ (opens with a fictional d
 * **Compare** — verdict, difference chart, cash-floor check, scorecard, "what's different", and a
   stress test across an assumption's cases.
 
+Borrowing is first-class: a home-equity line, a 0% intro card, a balance transfer or a loan is one
+debt with terms (fees, rate changes, payment rules, payoff date, credit limit) instead of a string
+of hand-built transactions; credit lines can act as a safety net when cash runs low.
+
+Every result explains itself: the change in net worth is broken down into income, spending,
+taxes, interest, fees, and growth — per year, and as the difference between two scenarios.
+Quick what-ifs let you try a change without saving anything, and check-ins keep the plan current
+while tracking actual vs. expected.
+
 Also: funding waterfalls ("pay college from the 529 first, then cash"), account tax treatments
 (401k, Roth, HSA, 529, brokerage, company stock, property) with back-of-the-envelope taxes and an
 after-tax net-worth lens, dated amount changes, flows that stop when an asset is sold, and an

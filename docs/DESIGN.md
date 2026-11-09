@@ -97,6 +97,22 @@ The price is linear between targets and grows at a configurable rate after the l
 same behaviour as the old app's price targets, but tied to an assumption instead of a hidden
 "active scenario" flag.
 
+### Borrowing (debts as instruments)
+
+Any borrowing — a home-equity line, a 0% intro card or balance transfer, a personal loan, a
+refinance — is one debt with terms, not a string of transactions:
+
+| Term | Meaning |
+|---|---|
+| `start` + `balance` | Borrow this amount on this date (empty start = a debt you already have). |
+| `proceedsTo` | Where the money goes: an account, or **another debt** it pays off (balance transfer, consolidation, refinance). `transferAll` sizes the loan to whatever that debt owes on the day. |
+| `feePct` / `feeFixed` | Upfront fee, added to the balance. |
+| `rate` + `rateSteps` | Rate over time (0% for 18 months, then 24.99%). |
+| `paymentRule` | `fixed` payment · `amortize` over `termMonths` (recomputed when the rate changes) · `interestOnly` · `minimum` (greater of the $ floor or `minPct`% of balance + interest). |
+| `payoffDate` | Pay the rest in full on a date (e.g. the day before a promo ends). |
+| `creditLimit` | Makes it a line of credit: transfers and funding orders can **draw** from it. |
+| `settings.safetyNet` | Credit lines to draw automatically when cash would otherwise go negative. |
+
 ## 3. Engine semantics
 
 * Daily simulation from the plan's *as-of* date to the horizon (default 30 years).
@@ -116,6 +132,12 @@ same behaviour as the old app's price targets, but tied to an assumption instead
   * total interest, taxes, and transaction costs paid.
 * Pure functions, no DOM. Run in the page (≈10–30 ms per scenario) and testable in Node.
 
+* **Attribution.** Every day's change in net worth is split into income (by group), spending
+  (by group), taxes, interest, fees and transaction costs, and growth (by asset type). Anything
+  not explained explicitly goes to an "other" bucket, so the buckets always add up exactly —
+  and a test keeps "other" at zero for ordinary plans. Summed per year it is an annual income
+  statement; differenced between scenarios it explains *why* one path beats another.
+
 ## 4. The comparison experience
 
 The Compare page is the heart of the app. For a reference **A** and challengers **B…**:
@@ -133,7 +155,18 @@ The Compare page is the heart of the app. For a reference **A** and challengers 
    Bear/Mid/Bull) and shows the end-wealth delta and lowest cash in a grid. Answers "does the
    decision still win if the market doesn't cooperate?"
 
+7. **What drives the difference** — the attribution buckets that differ most between the
+   scenarios ("Interest on debt −$11k"), with the main driver named in the verdict.
+
 Comparisons are saved and re-run against the current plan whenever you open them.
+
+**Quick what-ifs.** On the overview you can flip decisions, switch assumption cases, or change
+any value on top of the scenario you're viewing and see the verdict instantly. Nothing is
+saved unless you choose "Save as scenario", which also creates the comparison.
+
+**Check-ins.** "Update balances" shows what the plan expected each balance to be today next to
+your actual numbers, re-baselines the plan to today, and records actual vs. expected net worth
+so you can see whether you're running ahead of or behind plan over time.
 
 ## 5. UX principles
 
@@ -171,8 +204,7 @@ state-specific rules. The goal is directional accuracy for decisions, not tax fi
 
 ## 8. What else makes this a killer app (roadmap)
 
-1. **Check-ins / actuals** — a monthly "update balances" flow; chart plan-vs-actual drift and
-   re-baseline. Turns a forecast into a feedback loop.
+1. **Actuals history chart** — plot past check-ins against what each plan predicted (check-ins themselves are done).
 2. **Decision templates** — guided "Sell vs rent a property", "Pay off a debt early",
    "Liquidate equity on a schedule", "Buy a house", "Refinance" wizards that create the
    decision, its alternatives, and the items in one step.

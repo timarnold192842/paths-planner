@@ -255,3 +255,30 @@ details.more[open] > summary { margin-bottom: 10px; }
   .scen-card .choice { grid-template-columns: 1fr; gap: 4px; }
   .patch { grid-template-columns: 1fr 1fr; }
 }
+
+/* ---------- Breakdown bars ---------- */
+.bars { display: flex; flex-direction: column; gap: 6px; }
+.bar-row { display: grid; grid-template-columns: minmax(120px, 1.2fr) 2fr minmax(70px, auto); gap: 10px; align-items: center; font-size: 13px; }
+.bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.bar-track { height: 10px; border-radius: 6px; background: var(--surface-3); overflow: hidden; }
+.bar-fill { display: block; height: 100%; border-radius: 6px; opacity: .85; }
+.bar-value { text-align: right; font-weight: 650; }
+.bar-total { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 13px; }
+.mini-row { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 3px 0; border-bottom: 1px dashed var(--border); }
+.mini-row:last-child { border-bottom: 0; }
+@media (max-width: 860px) {
+  .bar-row { grid-template-columns: minmax(0, 1fr) minmax(70px, auto); }
+  .bar-row .bar-track { grid-column: 1 / -1; grid-row: 2; }
+}
+
+/* ---------- What-if ---------- */
+.whatif { display: grid; grid-template-columns: minmax(260px, 1fr) 2fr; }
+.whatif-controls { padding: 14px 18px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
+.whatif-controls select.changed { border-color: #9333ea; background: color-mix(in srgb, #9333ea 10%, var(--surface)); }
+.whatif-result { padding: 14px 18px; min-width: 0; }
+.whatif .patch { grid-template-columns: 1fr 1fr; }
+.whatif .patch input, .whatif .patch select { min-width: 0; }
+@media (max-width: 860px) {
+  .whatif { grid-template-columns: 1fr; }
+  .whatif-controls { border-right: 0; border-bottom: 1px solid var(--border); }
+}

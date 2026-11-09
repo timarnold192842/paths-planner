@@ -5,7 +5,7 @@ import { normalizePlan, SCHEMA } from '../engine/model.js';
 import { importLegacy, isLegacyForecast } from '../engine/legacy.js';
 import { demoPlan } from '../demo.js';
 import { todayYMD } from '../engine/dates.js';
-import { Field, Num, Text, DateIn, Select, accountOptions } from './editors.js';
+import { Field, Num, Text, DateIn, Select, Waterfall, accountOptions } from './editors.js';
 import { toast } from './toast.js';
 import { navigate } from './nav.js';
 
@@ -60,6 +60,9 @@ export function Settings() {
         <${Field} label="Cash safety floor ($)" hint="Warn when operating cash drops below this"><${Num} value=${s.cashFloor} onInput=${v => set('settings.cashFloor', v ?? 0)} /><//>
         <${Field} label="Inflation (%/yr)" hint="For today's-dollars views"><${Num} value=${s.inflation} onInput=${v => set('settings.inflation', v ?? 0)} /><//>
         <${Field} label="'Negligible' difference (%)" hint="Comparisons within this % of end wealth are called negligible"><${Num} value=${s.negligiblePct} onInput=${v => set('settings.negligiblePct', v ?? 0)} /><//>
+        <${Field} label="Safety net" wide hint="If cash would go negative, draw from these credit lines first (mark a debt as a credit line by giving it a limit).">
+          <${Waterfall} plan=${{ ...plan, accounts: [] }} value=${s.safetyNet || []} fallbackNote=${false} placeholder=${plan.debts.some(d => Number(d.creditLimit) > 0) ? '+ Add a credit line…' : 'No credit lines yet'} onChange=${v => set('settings.safetyNet', v)} />
+        <//>
       </div>
     </div>
 

@@ -1,17 +1,32 @@
 // Daily simulation of a compiled plan. Pure: no DOM, no globals.
 //
 // Day order (see docs/DESIGN.md §10):
-//   1 growth & interest · 2 income & unit grants · 3 transfers ·
+//   1 growth & interest (and new loans originate) · 2 income & unit grants · 3 transfers ·
 //   4 events (buy → sell → liquidate → payoff) · 5 expenses · 6 scheduled debt payments
-// Money is conserved: only the primary cash account may go negative; every other source is
-// capped at what it holds. Taxes are estimated at the moment money leaves a tax-bearing account.
+// Money is conserved: only the primary cash account may go negative, and only after any
+// safety-net credit lines are used up. Taxes are estimated when money leaves a tax-bearing account.
+//
+// Attribution: every day's change in net worth is split into income, spending, taxes, interest,
+// costs, and growth. Whatever isn't explained explicitly lands in an "other" bucket, so the
+// buckets always add up exactly to the change in net worth.
 
-import { parseYMD, toYMD, addDays, addYears, yearsBetween, DAYS_PER_YEAR } from './dates.js';
+import { parseYMD, toYMD, addDays, addMonths, addYears, yearsBetween, DAYS_PER_YEAR } from './dates.js';
 import { occurrences } from './schedule.js';
 import { pricePath } from './prices.js';
 
 const EPS = 1e-6;
 const BASIS_KINDS = new Set(['brokerage', 'equity', 'education', 'hsa', 'roth', 'property']);
+const GROWTH_LABELS = {
+  cash: 'Interest on cash', brokerage: 'Brokerage returns', equity: 'Company stock price & growth', traditional: '401(k) / IRA returns',
+  roth: 'Roth returns', hsa: 'HSA returns', education: '529 returns', property: 'Real-estate appreciation', other: 'Other assets (appreciation / depreciation)'
+};
+
+export const PAYMENT_RULES = [
+  { id: 'fixed', label: 'Fixed monthly payment' },
+  { id: 'amortize', label: 'Pay off evenly over a term' },
+  { id: 'interestOnly', label: 'Interest only' },
+  { id: 'minimum', label: 'Card-style minimum' }
+];
 
 export function simulate(plan, opts = {}) {
   const keepLedger = opts.ledger !== false;
@@ -30,6 +45,20 @@ export function simulate(plan, opts = {}) {
   const ltcg = rate(tax.ltcg) + rate(tax.state);
   const birth = parseYMD(tax.birthDate || '');
   const ageAt = d => (birth ? yearsBetween(birth, d) : 99);
+  const groupName = new Map((plan.groups || []).map(g => [g.id, g.name]));
+
+  // ---- attribution ----
+  const Y = Math.ceil((N - 1) / DAYS_PER_YEAR) + 1;
+  const buckets = new Map();
+  let today = new Map();
+  const yearOf = i => Math.min(Y - 1, Math.max(0, Math.floor((i - 1) / DAYS_PER_YEAR)));
+  function attr(kind, key, label, amount) {
+    if (!amount) return;
+    const k = `${kind}:${key}`;
+    if (!buckets.has(k)) buckets.set(k, { key: k, kind, label, values: new Float64Array(Y) });
+    today.set(k, (today.get(k) || 0) + amount);
+  }
+  const flowKey = f => (f.group && groupName.has(f.group) ? [`g:${f.group}`, groupName.get(f.group)] : [`f:${f.id}`, f.name]);
 
   // ---- prices (precomputed per unit per day) ----
   const prices = new Map();
@@ -70,20 +99,45 @@ export function simulate(plan, opts = {}) {
   for (const d of plan.debts) {
     const startDate = parseYMD(d.start || '');
     const startIdx = startDate && startDate > start ? idx(startDate) : 0;
+    const steps = (d.rateSteps || [])
+      .map(x => ({ i: idx(parseYMD(x.date) || start), rate: Number(x.rate) || 0 }))
+      .filter(x => Number.isFinite(x.i))
+      .sort((a, b) => a.i - b.i);
+    const termStart = startDate || start; // the loan's real start, even if before the as-of date
     debt.set(d.id, {
       def: d,
       bal: startIdx > 0 ? 0 : Math.max(0, Number(d.balance) || 0),
       startIdx,
-      dailyRate: (Number(d.rate) || 0) / 100 / DAYS_PER_YEAR,
-      series: new Float64Array(N),
-      interestPaid: 0
+      steps,
+      baseRate: Number(d.rate) || 0,
+      limit: Number(d.creditLimit) > 0 ? Number(d.creditLimit) : null,
+      payoffIdx: parseYMD(d.payoffDate || '') ? idx(parseYMD(d.payoffDate)) : Infinity,
+      termEnd: Number(d.termMonths) > 0 ? addMonths(termStart, Number(d.termMonths)) : parseYMD(d.payoffDate || ''),
+      accrued: 0,
+      series: new Float64Array(N)
     });
   }
+  // Annual rate (%) on day i, after any dated rate changes (promo periods, resets).
+  function annualRate(dst, i) {
+    let r = dst.baseRate;
+    for (const st of dst.steps) { if (st.i <= i) r = st.rate; else break; }
+    return r;
+  }
+  // A credit line can be drawn once open, until its payoff date, and while its collateral is owned.
+  function isCreditSource(dst, i) {
+    if (!dst || dst.limit == null || i < dst.startIdx || i >= dst.payoffIdx) return false;
+    const collateral = dst.def.securedBy ? acc.get(dst.def.securedBy) : null;
+    return !(collateral && collateral.soldAt != null && i >= collateral.soldAt);
+  }
+  const creditRoom = dst => Math.max(0, dst.limit - dst.bal);
+  const safetyNet = (s.safetyNet || []).filter(id => debt.has(id));
 
   // ---- ledger & totals ----
   const ledger = [];
-  const totals = { taxes: 0, interest: 0, costs: 0, shortfall: 0, unfunded: 0 };
+  const totals = { taxes: 0, interest: 0, costs: 0, shortfall: 0, unfunded: 0, borrowed: 0 };
   const log = (i, kind, entry) => { if (keepLedger) ledger.push({ date: toYMD(dates[i]), kind, ...entry }); };
+  const addTax = x => { if (x > 0) { totals.taxes += x; attr('taxes', 'taxes', 'Taxes & penalties', -x); } };
+  const addCost = (x, label = 'Selling, closing & loan fees') => { if (x > 0) { totals.costs += x; attr('costs', 'costs', label, -x); } };
 
   // ---- money primitives ----
   function deposit(id, usd, i, basisUsd = usd) {
@@ -116,62 +170,121 @@ export function simulate(plan, opts = {}) {
     }
   }
 
-  // Take `gross` USD out of an account (capped at its value unless it is the primary cash).
-  function takeGross(st, gross, i) {
+  // Take `gross` USD out of an account (capped at its value unless allowed to go negative).
+  function takeGross(st, gross, i, allowNegative = st.isPrimary) {
     const v = valueOf(st, i);
-    if (!st.isPrimary) gross = Math.min(gross, Math.max(0, v));
+    if (!allowNegative) gross = Math.min(gross, Math.max(0, v));
     if (gross <= EPS) return 0;
-    if (BASIS_KINDS.has(st.def.kind) && v > EPS) st.basis *= Math.max(0, 1 - gross / v);
+    if (BASIS_KINDS.has(st.def.kind) && v > EPS) st.basis *= Math.max(0, 1 - Math.min(gross, v) / v);
     st.qty -= gross / priceOf(st.def.unitId, i);
     return gross;
   }
 
-  // Pay `net` USD of spending from an ordered list of sources, then from primary cash.
-  // Returns the sources used, for the ledger.
+  function draw(dst, amount, i) {
+    const got = Math.min(amount, creditRoom(dst));
+    if (got <= EPS) return 0;
+    dst.bal += got;
+    totals.borrowed += got;
+    return got;
+  }
+
+  // Pay `net` USD from an ordered list of sources (accounts or credit lines), then primary
+  // cash. Primary cash only goes negative after safety-net credit lines are exhausted.
   function payFrom(sources, net, i, ctx = {}) {
     let need = net;
     const used = [];
-    const list = [...(sources || []).filter(id => id !== primaryId), primaryId];
-    for (const id of list) {
+    for (const id of (sources || []).filter(x => x !== primaryId && x !== ctx.exclude)) {
       if (need <= EPS) break;
+      const dst = debt.get(id);
+      if (dst) {
+        if (!isCreditSource(dst, i)) continue;
+        const got = draw(dst, need, i);
+        if (got > 0) { need -= got; used.push({ id, gross: got, tax: 0, draw: true }); }
+        continue;
+      }
       const st = acc.get(id);
-      if (!st) continue;
-      const isLast = id === primaryId;
-      if (!isLast && (!owned(st, i) || valueOf(st, i) <= EPS)) continue;
+      if (!st || !owned(st, i) || valueOf(st, i) <= EPS) continue;
       const t = withdrawalTaxRate(st, i, ctx);
       if (t >= 1) continue;
-      const gross = takeGross(st, need / (1 - t), i);
+      const gross = takeGross(st, need / (1 - t), i, false);
       const got = gross * (1 - t);
-      const taxPaid = gross - got;
-      totals.taxes += taxPaid;
+      addTax(gross - got);
       need -= got;
-      used.push({ id, gross, tax: taxPaid });
+      used.push({ id, gross, tax: gross - got });
     }
-    if (need > EPS) totals.unfunded += need; // only when there is no primary cash account
+    if (need > EPS && acc.has(primaryId)) {
+      used.push(...fromPrimary(need, i, ctx.exclude));
+      need = 0;
+    }
+    if (need > EPS) totals.unfunded += need;
+    return used;
+  }
+
+  // Take `need` from primary cash: its positive balance first, then safety-net credit lines,
+  // and only then let it go negative. Always covers the full amount.
+  function fromPrimary(need, i, exclude) {
+    const p = acc.get(primaryId);
+    const used = [];
+    if (safetyNet.length) {
+      const fromCash = takeGross(p, Math.min(need, Math.max(0, valueOf(p, i))), i, false);
+      if (fromCash > 0) { need -= fromCash; used.push({ id: primaryId, gross: fromCash, tax: 0 }); }
+      for (const id of safetyNet) {
+        if (need <= EPS) break;
+        if (id === exclude) continue;
+        const dst = debt.get(id);
+        if (!isCreditSource(dst, i)) continue;
+        const got = draw(dst, need, i);
+        if (got > 0) { need -= got; used.push({ id, gross: got, tax: 0, draw: true }); }
+      }
+    }
+    if (need > EPS) { takeGross(p, need, i, true); used.push({ id: primaryId, gross: need, tax: 0 }); }
     return used;
   }
 
   function debtPay(dst, amount, sources, i, label, kind = 'debt-payment') {
-    if (!dst || dst.bal <= EPS) return 0;
+    if (!dst || dst.bal <= EPS || !(amount > EPS)) return 0;
     const pay = Math.min(amount, dst.bal);
-    const used = payFrom(sources, pay, i);
+    const used = payFrom(sources, pay, i, { exclude: dst.def.id });
     dst.bal -= pay;
+    dst.accrued = 0;
     log(i, kind, { item: dst.def.id, name: label, amount: pay, from: used.map(u => u.id), tax: sum(used, 'tax') });
     return pay;
+  }
+
+  // Scheduled payment amount for a debt today, by its payment rule.
+  function scheduledPayment(dst, i) {
+    const d = dst.def;
+    const floor = Number(d.payment) || 0;
+    switch (d.paymentRule) {
+      case 'interestOnly':
+        return dst.accrued;
+      case 'minimum':
+        return Math.max(floor, dst.bal * (Number(d.minPct ?? 1) || 0) / 100 + dst.accrued);
+      case 'amortize': {
+        if (!dst.termEnd) return floor;
+        // Payments left, counting today's.
+        const months = Math.max(1, Math.round((dst.termEnd - dates[i]) / (86400000 * 30.4375)) + 1);
+        // Standard annuity on the principal before this period's interest (which the payment covers).
+        const principal = Math.max(0, dst.bal - dst.accrued);
+        const r = annualRate(dst, i) / 100 / 12;
+        return r ? principal * r / (1 - (1 + r) ** -months) : principal / months;
+      }
+      default:
+        return floor;
+    }
   }
 
   // ---- flows: precompute occurrences by day ----
   const byDay = { income: new Map(), transfer: new Map(), expense: new Map() };
   const push = (map, i, v) => { if (!map.has(i)) map.set(i, []); map.get(i).push(v); };
-  const firstDay = addDays(start, 1); // balances are as of the start of `asOf`'s evening; activity on asOf is already in them
+  const firstDay = addDays(start, 1); // balances are as of `asOf`; activity on that day is already in them
   for (const f of plan.flows) {
     const hasTo = !!f.to;
     const hasFrom = (f.from || []).length > 0;
     const phase = hasTo && !hasFrom ? 'income' : hasTo && hasFrom ? 'transfer' : 'expense';
     const ownerAsset = f.whileOwned ? acc.get(f.whileOwned) : null;
     for (const d of occurrences(f.schedule, firstDay, end)) {
-      const i = idx(d);
-      push(byDay[phase], i, { f, amount: amountAt(f, d), ownerAsset });
+      push(byDay[phase], idx(d), { f, amount: amountAt(f, d), ownerAsset });
     }
   }
 
@@ -179,8 +292,8 @@ export function simulate(plan, opts = {}) {
   const eventsByDay = new Map();
   const ORDER = { buy: 0, sell: 1, liquidate: 2, payoff: 3 };
   for (const e of plan.events) {
-    const dates_ = e.type === 'liquidate' && e.schedule ? occurrences(e.schedule, firstDay, end) : [parseYMD(e.date)].filter(d => d && d >= firstDay && d <= end);
-    for (const d of dates_) push(eventsByDay, idx(d), e);
+    const ds = e.type === 'liquidate' && e.schedule ? occurrences(e.schedule, firstDay, end) : [parseYMD(e.date)].filter(d => d && d >= firstDay && d <= end);
+    for (const d of ds) push(eventsByDay, idx(d), e);
   }
   for (const list of eventsByDay.values()) list.sort((a, b) => (ORDER[a.type] ?? 9) - (ORDER[b.type] ?? 9));
 
@@ -191,7 +304,8 @@ export function simulate(plan, opts = {}) {
     const payoff = parseYMD(d.payoffDate || '');
     const from = dst.startIdx > 0 ? addDays(start, dst.startIdx + 1) : firstDay;
     const last = payoff ? addDays(payoff, -1) : end;
-    if (Number(d.payment) > 0) {
+    const rule = d.paymentRule || 'fixed';
+    if (rule !== 'fixed' || Number(d.payment) > 0) {
       for (const day of occurrences({ freq: 'monthly', start: toYMD(from), dayOfMonth: Number(d.paymentDay) || 1 }, from, last)) {
         push(debtByDay, idx(day), { dst, type: 'payment' });
       }
@@ -199,13 +313,14 @@ export function simulate(plan, opts = {}) {
     if (payoff && payoff >= firstDay && payoff <= end) push(debtByDay, idx(payoff), { dst, type: 'payoff' });
   }
 
-  // ---- record day 0 ----
+  // ---- recording ----
   const nw = new Float64Array(N);
   const afterTax = new Float64Array(N);
   const cash = new Float64Array(N);
   const accessible = new Float64Array(N);
   const assets = new Float64Array(N);
   const liabilities = new Float64Array(N);
+  const creditAvailable = new Float64Array(N);
 
   const propSellPct = (Number(tax.propertySellingCostPct) || 0) / 100;
   function record(i) {
@@ -214,6 +329,7 @@ export function simulate(plan, opts = {}) {
     let AT = 0;
     let C = 0;
     let AC = 0;
+    let CR = 0;
     for (const st of acc.values()) {
       const v = owned(st, i) || st.isPrimary ? valueOf(st, i) : 0;
       st.series[i] = v;
@@ -235,6 +351,7 @@ export function simulate(plan, opts = {}) {
     for (const dst of debt.values()) {
       dst.series[i] = dst.bal;
       L += dst.bal;
+      if (isCreditSource(dst, i)) CR += creditRoom(dst);
     }
     assets[i] = A;
     liabilities[i] = L;
@@ -242,23 +359,32 @@ export function simulate(plan, opts = {}) {
     afterTax[i] = AT - L;
     cash[i] = C;
     accessible[i] = AC;
+    creditAvailable[i] = CR;
   }
   record(0);
 
   // ---- main loop ----
   for (let i = 1; i < N; i++) {
-    // 1. growth & interest
-    for (const st of acc.values()) if (owned(st, i)) st.qty *= st.dailyGrowth;
+    today = new Map();
+
+    // 1. growth, interest, and loans that start today
+    for (const st of acc.values()) {
+      if (!owned(st, i)) continue;
+      const before = st.qty * priceOf(st.def.unitId, i - 1);
+      st.qty *= st.dailyGrowth;
+      attr('growth', st.def.kind, GROWTH_LABELS[st.def.kind] || 'Growth', st.qty * priceOf(st.def.unitId, i) - before);
+    }
     for (const dst of debt.values()) {
-      if (i === dst.startIdx && dst.startIdx > 0) {
-        dst.bal = Math.max(0, Number(dst.def.balance) || 0);
-        if (dst.def.proceedsTo) deposit(dst.def.proceedsTo, dst.bal, i, 0);
-        log(i, 'debt-start', { item: dst.def.id, name: dst.def.name, amount: dst.bal });
-      } else if (dst.bal > EPS && dst.dailyRate) {
-        const interest = dst.bal * dst.dailyRate;
-        dst.bal += interest;
-        totals.interest += interest;
-        dst.interestPaid += interest;
+      if (i === dst.startIdx && dst.startIdx > 0) originate(dst, i);
+      else if (dst.bal > EPS) {
+        const r = annualRate(dst, i);
+        if (r) {
+          const interest = dst.bal * r / 100 / DAYS_PER_YEAR;
+          dst.bal += interest;
+          dst.accrued += interest;
+          totals.interest += interest;
+          attr('interest', 'interest', 'Interest on debt', -interest);
+        }
       }
     }
 
@@ -267,18 +393,21 @@ export function simulate(plan, opts = {}) {
       if (ownerAsset && !owned(ownerAsset, i)) continue;
       const dst = acc.get(f.to);
       const dDebt = debt.get(f.to);
+      if (dst && !owned(dst, i) && !dst.isPrimary) continue;
       const price = priceOf(f.unitId, i);
+      const gross = amount * price;
       let units = amount;
       let withheld = 0;
       if (f.withholdPct) { withheld = units * Math.min(100, Number(f.withholdPct)) / 100; units -= withheld; }
       let usd = units * price;
       let taxPaid = withheld * price;
       if (f.taxed === 'ordinary') { taxPaid += usd * ordinary; usd *= 1 - ordinary; }
-      totals.taxes += taxPaid;
+      const [k, label] = flowKey(f);
+      attr('income', k, label, gross);
+      addTax(taxPaid);
       if (dst) {
-        if (!owned(dst, i) && !dst.isPrimary) continue;
         if (f.unitId && dst.def.unitId === f.unitId) {
-          dst.qty += f.taxed === 'ordinary' ? usd / price : units;
+          dst.qty += usd / price;
           if (BASIS_KINDS.has(dst.def.kind)) dst.basis += usd; // vest-date price is the cost basis
         } else deposit(f.to, usd, i, usd);
       } else if (dDebt) {
@@ -304,15 +433,18 @@ export function simulate(plan, opts = {}) {
       let taxPaid = 0;
       const sources = f.from || [];
       for (const id of sources) {
+        if (gross - moved <= EPS) break;
+        const dSrc = debt.get(id);
+        if (dSrc) { if (isCreditSource(dSrc, i)) moved += draw(dSrc, gross - moved, i); continue; }
+        if (id === primaryId) { fromPrimary(gross - moved, i); moved = gross; continue; }
         const st = acc.get(id);
-        if (!st || gross - moved <= EPS) continue;
-        if (!owned(st, i) && !st.isPrimary) continue;
+        if (!st || !owned(st, i)) continue;
         const t = withdrawalTaxRate(st, i, { qualified: f.qualified });
-        const g = takeGross(st, gross - moved, i);
+        const g = takeGross(st, gross - moved, i, false);
         moved += g;
         taxPaid += g * t;
       }
-      totals.taxes += taxPaid;
+      addTax(taxPaid);
       if (moved - taxPaid > EPS) deposit(f.to, moved - taxPaid, i);
       log(i, 'transfer', { item: f.id, name: f.name, amount: moved, from: sources, to: f.to, tax: taxPaid, note: moved + EPS < gross ? 'Source ran out' : undefined });
     }
@@ -325,23 +457,57 @@ export function simulate(plan, opts = {}) {
       if (ownerAsset && !owned(ownerAsset, i)) continue;
       const usd = amount * priceOf(f.unitId, i);
       if (!(usd > 0)) continue;
+      const [k, label] = flowKey(f);
+      attr('spending', k, label, -usd);
       const used = payFrom(f.from, usd, i, { qualified: f.qualified });
       log(i, 'expense', { item: f.id, name: f.name, amount: usd, from: used.map(u => u.id), tax: sum(used, 'tax') });
     }
 
     // 6. scheduled debt payments
     for (const { dst, type } of debtByDay.get(i) || []) {
-      if (type === 'payment') debtPay(dst, Number(dst.def.payment) || 0, dst.def.payFrom, i, `${dst.def.name} payment`);
+      if (type === 'payment') debtPay(dst, scheduledPayment(dst, i), dst.def.payFrom, i, `${dst.def.name} payment`);
       else debtPay(dst, dst.bal, dst.def.payFrom, i, `${dst.def.name} payoff`, 'payoff');
     }
 
     const p = acc.get(primaryId);
     if (p && p.qty < 0) totals.shortfall = Math.max(totals.shortfall, -valueOf(p, i));
     record(i);
+
+    // close the day's attribution: anything unexplained goes to "other"
+    let explained = 0;
+    for (const v of today.values()) explained += v;
+    const residual = (nw[i] - nw[i - 1]) - explained;
+    if (Math.abs(residual) > 0.005) attr('other', 'other', 'Other (sale price vs. model, loans without proceeds)', residual);
+    const y = yearOf(i);
+    for (const [k, v] of today) buckets.get(k).values[y] += v;
+  }
+
+  // A new loan: balance (+ any fee) appears; the money goes to an account or pays down another debt.
+  function originate(dst, i) {
+    const d = dst.def;
+    const target = d.proceedsTo;
+    // "Transfer the whole balance": size the loan to whatever the other debt owes on that day.
+    const principal = d.transferAll && target && debt.has(target) ? debt.get(target).bal : Math.max(0, Number(d.balance) || 0);
+    const fee = principal * (Number(d.feePct) || 0) / 100 + (Number(d.feeFixed) || 0);
+    dst.bal = principal + fee;
+    dst.accrued = 0;
+    totals.borrowed += principal;
+    addCost(fee);
+    let note = '';
+    if (target && debt.has(target)) {
+      const other = debt.get(target);
+      const applied = Math.min(principal, other.bal);
+      other.bal -= applied;
+      if (principal - applied > EPS) deposit(primaryId, principal - applied, i, 0);
+      note = `Paid ${fmt(applied)} of ${other.def.name}`;
+    } else if (target) {
+      deposit(target, principal, i, 0);
+      note = `Deposited to ${acc.get(target)?.def.name || 'account'}`;
+    }
+    log(i, 'borrow', { item: d.id, name: `${d.name} starts`, amount: principal, to: target, note: [note, fee ? `fee ${fmt(fee)}` : ''].filter(Boolean).join(' · ') });
   }
 
   function runEvent(e, i) {
-    const d = dates[i];
     switch (e.type) {
       case 'buy': {
         const st = acc.get(e.assetId);
@@ -352,12 +518,12 @@ export function simulate(plan, opts = {}) {
         st.soldAt = null;
         st.qty = price / priceOf(st.def.unitId, i);
         st.basis = price + closing;
+        addCost(closing);
         const loan = debt.get(e.debtId);
         const loanAmt = loan ? loan.bal : 0;
         const cashNeeded = price + closing - loanAmt;
         const used = cashNeeded > 0 ? payFrom(e.from, cashNeeded, i) : [];
         if (cashNeeded < 0) deposit(primaryId, -cashNeeded, i, 0);
-        totals.costs += closing;
         log(i, 'buy', { item: e.id, name: e.name || `Buy ${st.def.name}`, amount: price, from: used.map(u => u.id), note: `Down payment + closing ${fmt(Math.max(0, cashNeeded))}` });
         break;
       }
@@ -366,8 +532,8 @@ export function simulate(plan, opts = {}) {
         if (!st || !owned(st, i)) return;
         const v = e.price != null && e.price !== '' ? Number(e.price) : valueOf(st, i);
         const costs = v * (Number(e.costPct) || 0) / 100 + (Number(e.fixedCost) || 0);
-        let proceeds = v - costs;
-        totals.costs += costs;
+        addCost(costs);
+        const proceeds = v - costs;
         // Secured debts are settled from proceeds first.
         let debtPaid = 0;
         for (const dst of debt.values()) {
@@ -382,7 +548,7 @@ export function simulate(plan, opts = {}) {
         const exclusion = e.useExclusion || st.def.primaryResidence ? Number(tax.residenceExclusion) || 0 : 0;
         const gain = v - costs - st.basis - exclusion;
         const taxPaid = Math.max(0, gain) * ltcg;
-        totals.taxes += taxPaid;
+        addTax(taxPaid);
         const net = proceeds - debtPaid - taxPaid;
         st.qty = 0;
         st.basis = 0;
@@ -407,7 +573,7 @@ export function simulate(plan, opts = {}) {
         const taxPaid = Math.max(0, gross - basisSold) * r;
         st.basis -= basisSold;
         st.qty -= units;
-        totals.taxes += taxPaid;
+        addTax(taxPaid);
         deposit(e.to || primaryId, gross - taxPaid, i);
         log(i, 'liquidate', { item: e.id, name: e.name || `Sell ${st.def.name}`, amount: gross, from: [st.def.id], to: e.to || primaryId, tax: taxPaid, note: `${round(units)} units @ ${fmt(price)}` });
         break;
@@ -421,7 +587,6 @@ export function simulate(plan, opts = {}) {
       default:
         break;
     }
-    void d;
   }
 
   const accountsOut = {};
@@ -433,13 +598,28 @@ export function simulate(plan, opts = {}) {
     dates,
     N,
     primaryId,
-    series: { netWorth: nw, afterTax, cash, accessible, assets, liabilities },
+    series: { netWorth: nw, afterTax, cash, accessible, assets, liabilities, creditAvailable },
     accounts: accountsOut,
     debts: debtsOut,
     ledger,
     totals,
+    attribution: { years: Y, buckets: [...buckets.values()] },
     units: Object.fromEntries([...prices].map(([id, arr]) => [id, arr]))
   };
+}
+
+// Sum of each attribution bucket from the start up to `years` (whole or fractional).
+export function attributionUpTo(run, years) {
+  const out = new Map();
+  const full = Math.floor(years);
+  const frac = years - full;
+  for (const b of run.attribution.buckets) {
+    let v = 0;
+    for (let y = 0; y < Math.min(full, b.values.length); y++) v += b.values[y];
+    if (frac && full < b.values.length) v += b.values[full] * frac;
+    out.set(b.key, { ...b, total: v });
+  }
+  return out;
 }
 
 // Amount of a flow on a date: dated steps first, then annual escalation from the active step.

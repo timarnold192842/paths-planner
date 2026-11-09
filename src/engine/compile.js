@@ -50,8 +50,9 @@ export function effectiveSelections(plan, scenarioId, diagnostics = []) {
 }
 
 // `when` = { decisionId: [altId, ...] }. All listed decisions must match (AND); each list is OR.
-export function isActive(item, choices) {
-  if (!item || item.enabled === false) return false;
+// `enabled` is checked separately, after patches, so scenarios can switch items on or off.
+export function isActive(item, choices, ignoreEnabled = false) {
+  if (!item || (!ignoreEnabled && item.enabled === false)) return false;
   const when = item.when;
   if (!when) return true;
   return Object.entries(when).every(([decId, alts]) => {
@@ -99,10 +100,10 @@ export function compile(plan, scenarioId, opts = {}) {
     ...plan,
     settings: clone(plan.settings),
     units: clone(plan.units),
-    accounts: plan.accounts.filter(x => isActive(x, sel.choices)).map(clone),
-    debts: plan.debts.filter(x => isActive(x, sel.choices)).map(clone),
-    flows: plan.flows.filter(x => isActive(x, sel.choices)).map(clone),
-    events: plan.events.filter(x => isActive(x, sel.choices)).map(clone)
+    accounts: plan.accounts.filter(x => isActive(x, sel.choices, true)).map(clone),
+    debts: plan.debts.filter(x => isActive(x, sel.choices, true)).map(clone),
+    flows: plan.flows.filter(x => isActive(x, sel.choices, true)).map(clone),
+    events: plan.events.filter(x => isActive(x, sel.choices, true)).map(clone)
   };
   const owners = new Map();
   for (const d of plan.decisions) {
@@ -115,9 +116,13 @@ export function compile(plan, scenarioId, opts = {}) {
   }
   if (sel.patches.length) applyPatches(out, sel.patches, 'Scenario tweak', new Map(), diagnostics);
 
-  // Assets activated by a buy event are owned from the purchase date.
+  // Switch items on/off only now, so patches can change `enabled`.
+  for (const coll of ['accounts', 'debts', 'flows', 'events']) out[coll] = out[coll].filter(x => x.enabled !== false);
+
+  // Assets activated by a future buy event are owned from the purchase date. A purchase dated
+  // on/before the as-of date already happened: its balances are whatever the plan says today.
   for (const e of out.events) {
-    if (e.type !== 'buy') continue;
+    if (e.type !== 'buy' || !(e.date > plan.asOf)) continue;
     const asset = out.accounts.find(a => a.id === e.assetId);
     if (asset) { asset.ownedFrom = e.date; asset.balance = 0; }
     const debt = out.debts.find(x => x.id === e.debtId);

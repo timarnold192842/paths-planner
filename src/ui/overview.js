@@ -4,7 +4,9 @@ import { store, useUI } from '../store.js';
 import { getRun, scenarioName } from './runs.js';
 import { Chart, rangeFor } from './chart.js';
 import { LENSES, lensSeries } from '../engine/metrics.js';
-import { formatDate, formatMonthYear, parseYMD, addDays, toYMD } from '../engine/dates.js';
+import { formatDate, formatMonthYear, parseYMD, addDays, toYMD, todayYMD } from '../engine/dates.js';
+import { Breakdown, yearly } from './breakdown.js';
+import { WhatIf } from './whatif.js';
 
 export const RANGES = [[2, '2Y'], [5, '5Y'], [10, '10Y'], [30, '30Y']];
 
@@ -46,6 +48,8 @@ export function Overview({ scenarioId }) {
   ], [run, lens, infl]);
 
   const floor = plan.settings.cashFloor;
+  const staleDays = Math.round((parseYMD(todayYMD()) - parseYMD(plan.asOf)) / 86400000);
+  const lastCheck = (plan.history || []).at(-1);
   const nearBreach = m.minCashNear.value < floor;
   const today = run.series;
   const upcoming = useMemo(() => {
@@ -54,13 +58,13 @@ export function Overview({ scenarioId }) {
   }, [run]);
 
   const yearRows = useMemo(() => {
+    const pl = yearly(run);
     const rows = [];
-    const start = parseYMD(plan.asOf);
-    for (let y = 1; y <= Math.min(plan.horizonYears, 30); y++) {
+    for (let y = 1; y <= Math.min(plan.horizonYears, 60); y++) {
       const i = Math.min(run.N - 1, Math.round(y * 365.25));
-      rows.push({ y, date: toYMD(run.dates[i]), nw: run.series.netWorth[i], at: lensSeries(run, 'afterTaxReal', infl)[i], cash: run.series.cash[i], debt: run.series.liabilities[i] });
+      const r2 = pl[y - 1] || {};
+      rows.push({ y, date: toYMD(run.dates[i]), nw: run.series.netWorth[i], cash: run.series.cash[i], income: r2.income, spending: r2.spending, taxes: r2.taxes, debtCost: (r2.interest || 0) + (r2.costs || 0), growth: r2.growth });
     }
-    void start;
     return rows;
   }, [run]);
 
@@ -68,9 +72,11 @@ export function Overview({ scenarioId }) {
     <div class="page-head">
       <div>
         <h2>${scenarioName(plan, scenarioId)}</h2>
-        <p>As of ${formatDate(plan.asOf)} · ${plan.horizonYears}-year horizon</p>
+        <p>Balances as of ${formatDate(plan.asOf)} · <a href="#/checkin">Update balances</a> · ${plan.horizonYears}-year horizon</p>
       </div>
     </div>
+    ${staleDays > 30 ? html`<div class="notice info"><span>↻</span><div>Your balances are ${staleDays} days old. <a href="#/checkin">Check in</a> to refresh them — it takes a minute and shows how you're tracking against the plan.</div></div>` : null}
+    ${lastCheck ? html`<div class="small muted">Last check-in ${formatDate(lastCheck.date)}: actual net worth ${compact(lastCheck.netWorth)} vs ${compact(lastCheck.plannedNetWorth)} expected (<span class=${lastCheck.netWorth >= lastCheck.plannedNetWorth ? 'pos' : 'neg'}>${signed(lastCheck.netWorth - lastCheck.plannedNetWorth)}</span>).</div>` : null}
     <${Diagnostics} diagnostics=${compiled.diagnostics} />
     <div class="kpis">
       <div class="card kpi"><div class="label">Net worth today</div><div class="value">${compact(today.netWorth[0])}</div><div class="sub">After tax ${compact(today.afterTax[0])}</div></div>
@@ -87,6 +93,7 @@ export function Overview({ scenarioId }) {
       </div>
       <${Chart} series=${series} dates=${run.dates} range=${rangeFor(run, years)} height=${320} refLines=${[{ value: floor, label: 'Cash floor', color: '#dc2626' }]} />
     </div>
+    <${WhatIf} key=${scenarioId} scenarioId=${scenarioId} lens=${lens} years=${years} />
     <div class="grid-2">
       <div class="card">
         <div class="card-head"><h3>Next 90 days</h3><span class="small muted">${upcoming.length} items</span></div>
@@ -99,13 +106,26 @@ export function Overview({ scenarioId }) {
         </div>
       </div>
       <div class="card">
-        <div class="card-head"><h3>Year by year</h3><span class="small muted">After-tax in today's dollars</span></div>
-        <div class="scroll-x" style="max-height:420px;overflow-y:auto">
-          <table class="tbl">
-            <thead><tr><th>Year</th><th>Net worth</th><th>After tax (real)</th><th>Cash</th><th>Debt</th></tr></thead>
-            <tbody>${yearRows.map(r2 => html`<tr><td>${r2.date.slice(0, 4)}</td><td>${compact(r2.nw)}</td><td>${compact(r2.at)}</td><td class=${r2.cash < floor ? 'neg' : ''}>${compact(r2.cash)}</td><td>${compact(r2.debt)}</td></tr>`)}</tbody>
-          </table>
-        </div>
+        <div class="card-head"><h3>Where the change comes from</h3><span class="small muted">Next ${Math.min(years, plan.horizonYears)} years · nominal</span></div>
+        <${Breakdown} run=${run} years=${Math.min(years, plan.horizonYears)} />
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Year by year</h3><span class="small muted">Each row is the 12 months ending on that date · nominal dollars</span></div>
+      <div class="scroll-x" style="max-height:460px;overflow-y:auto">
+        <table class="tbl">
+          <thead><tr><th>Year ending</th><th>Income</th><th>Spending</th><th>Taxes</th><th>Interest & fees</th><th>Growth</th><th>Net worth</th><th>Cash</th></tr></thead>
+          <tbody>${yearRows.map(r2 => html`<tr>
+            <td>${formatMonthYear(r2.date)}</td>
+            <td class="pos">${compact(r2.income)}</td>
+            <td>${compact(-(r2.spending || 0))}</td>
+            <td>${compact(-(r2.taxes || 0))}</td>
+            <td>${compact(-(r2.debtCost || 0))}</td>
+            <td class=${(r2.growth || 0) < 0 ? 'neg' : ''}>${signed(r2.growth || 0)}</td>
+            <td><b>${compact(r2.nw)}</b></td>
+            <td class=${r2.cash < floor ? 'neg' : ''}>${compact(r2.cash)}</td>
+          </tr>`)}</tbody>
+        </table>
       </div>
     </div>
   </div>`;

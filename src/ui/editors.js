@@ -4,6 +4,7 @@ import { store } from '../store.js';
 import { ACCOUNT_KINDS, kindInfo, newId, clone, setPath, getPath } from '../engine/model.js';
 import { FREQUENCIES, describeSchedule, perYear } from '../engine/schedule.js';
 import { todayYMD } from '../engine/dates.js';
+import { PAYMENT_RULES } from '../engine/simulate.js';
 
 // ---------- generic fields ----------
 export function Field({ label, hint, children, wide }) {
@@ -35,24 +36,27 @@ export const accountOptions = (plan, filter = () => true) =>
 export const debtOptions = plan => plan.debts.map(d => ({ value: d.id, label: d.name }));
 
 // Ordered list of funding sources ("pay from 529 first, then Cash").
-export function Waterfall({ plan, value = [], onChange, fallbackNote = true }) {
+export function Waterfall({ plan, value = [], onChange, fallbackNote = true, placeholder }) {
   const list = value || [];
   const primary = plan.accounts.find(a => a.id === plan.settings.primaryCashId);
-  const available = plan.accounts.filter(a => kindInfo(a.kind).withdrawable && !list.includes(a.id));
+  const available = [
+    ...plan.accounts.filter(a => kindInfo(a.kind).withdrawable && !list.includes(a.id)).map(a => ({ id: a.id, name: a.name })),
+    ...plan.debts.filter(d => Number(d.creditLimit) > 0 && !list.includes(d.id)).map(d => ({ id: d.id, name: `${d.name} (credit line)` }))
+  ];
   const move = (i, d) => { const n = [...list]; const [x] = n.splice(i, 1); n.splice(i + d, 0, x); onChange(n); };
   return html`<div class="waterfall">
     ${list.map((id, i) => {
-      const a = plan.accounts.find(x => x.id === id);
+      const a = plan.accounts.find(x => x.id === id) || plan.debts.find(x => x.id === id);
       return html`<div class="wf-row" key=${id}>
         <span class="wf-n">${i + 1}</span>
-        <span>${a ? a.name : html`<span class="neg">Missing account</span>`}</span>
+        <span>${a ? (a.creditLimit ? `${a.name} (credit line)` : a.name) : html`<span class="neg">Missing account</span>`}</span>
         <button type="button" class="btn sm icon ghost" aria-label="Move up" disabled=${i === 0} onClick=${() => move(i, -1)}>↑</button>
         <button type="button" class="btn sm icon ghost" aria-label="Move down" disabled=${i === list.length - 1} onClick=${() => move(i, 1)}>↓</button>
         <button type="button" class="btn sm icon ghost" aria-label="Remove" onClick=${() => onChange(list.filter(x => x !== id))}>×</button>
       </div>`;
     })}
     <select value="" onChange=${e => { if (e.target.value) onChange([...list, e.target.value]); e.target.value = ''; }}>
-      <option value="">${list.length ? '+ Then pay from…' : '+ Pay from… (default: primary cash)'}</option>
+      <option value="">${placeholder || (list.length ? '+ Then pay from…' : '+ Pay from… (default: primary cash)')}</option>
       ${available.map(a => html`<option value=${a.id}>${a.name}</option>`)}
     </select>
     ${fallbackNote && primary ? html`<span class="hint small faint">Anything the listed accounts can't cover comes from ${primary.name}, which may go negative.</span>` : null}
@@ -112,12 +116,14 @@ export function WhenEditor({ plan, value, onChange }) {
   </div>`;
 }
 
-export function whenLabel(plan, when) {
+// Short label for the alternatives an item belongs to ("Only if: Sell this spring").
+export function whenLabel(plan, when, verbose = false) {
   if (!when) return '';
   return Object.entries(when).map(([dId, alts]) => {
     const d = plan.decisions.find(x => x.id === dId);
     if (!d) return null;
-    return `${d.name}: ${alts.map(a => d.alternatives.find(x => x.id === a)?.name || '?').join(' / ')}`;
+    const names = alts.map(a => d.alternatives.find(x => x.id === a)?.name || '?').join(' / ');
+    return verbose ? `${d.name}: ${names}` : names;
   }).filter(Boolean).join(' · ');
 }
 
@@ -184,7 +190,7 @@ export function ItemSheet({ coll, id, draftItem, onClose }) {
         ${coll === 'events' ? html`<${EventForm} plan=${plan} d=${d} set=${set} />` : null}
         ${coll === 'units' ? html`<${UnitForm} plan=${plan} d=${d} set=${set} setD=${setD} />` : null}
         ${coll !== 'units' ? html`<details class="more" open=${!!d.when}>
-          <summary>Only in some alternatives ${d.when ? html`<span class="badge blue">${whenLabel(plan, d.when)}</span>` : null}</summary>
+          <summary>Only in some alternatives ${d.when ? html`<span class="badge blue">${whenLabel(plan, d.when, true)}</span>` : null}</summary>
           <${WhenEditor} plan=${plan} value=${d.when} onChange=${v => set('when', v)} />
         </details>` : null}
         ${coll !== 'units' && coll !== 'accounts' ? html`<label class="check"><input type="checkbox" checked=${d.enabled !== false} onChange=${e => set('enabled', e.target.checked)} /> Included in the plan</label>` : null}
@@ -218,16 +224,60 @@ function AccountForm({ plan, d, set }) {
 }
 
 function DebtForm({ plan, d, set }) {
+  const rule = d.paymentRule || 'fixed';
+  const future = !!d.start;
+  const toDebt = d.proceedsTo && plan.debts.some(x => x.id === d.proceedsTo);
+  const isLine = Number(d.creditLimit) > 0;
   return html`<div class="form-grid">
-    <${Field} label="Name" wide><${Text} value=${d.name} onInput=${v => set('name', v)} /><//>
-    <${Field} label="Balance today ($)" hint=${d.start ? 'Original amount (starts on the start date)' : null}><${Num} value=${d.balance} onInput=${v => set('balance', v)} /><//>
-    <${Field} label="Interest rate (%/yr)"><${Num} value=${d.rate} onInput=${v => set('rate', v)} /><//>
-    <${Field} label="Monthly payment ($)"><${Num} value=${d.payment} onInput=${v => set('payment', v)} /><//>
-    <${Field} label="Payment day"><${Num} value=${d.paymentDay} min="1" step="1" onInput=${v => set('paymentDay', v)} /><//>
-    <${Field} label="Pay off in full on" hint="Remaining balance is paid in one lump sum"><${DateIn} value=${d.payoffDate} onInput=${v => set('payoffDate', v)} /><//>
-    <${Field} label="Starts on" hint="Only for loans that begin in the future"><${DateIn} value=${d.start} onInput=${v => set('start', v)} /><//>
-    <${Field} label="Secured by" hint="Paid off from the proceeds when this asset is sold"><${Select} value=${d.securedBy} empty="Nothing" onChange=${v => set('securedBy', v)} options=${accountOptions(plan, a => a.kind === 'property' || a.kind === 'other')} /><//>
-    <${Field} label="Payments come from" wide><${Waterfall} plan=${plan} value=${d.payFrom} onChange=${v => set('payFrom', v)} /><//>
+      <${Field} label="Name" wide><${Text} value=${d.name} onInput=${v => set('name', v)} /><//>
+      <${Field} label="Starts" hint="Leave empty for a debt you already have"><${DateIn} value=${d.start} onInput=${v => set('start', v)} /><//>
+      ${!(future && toDebt && d.transferAll) ? html`<${Field} label=${future ? 'Amount borrowed ($)' : 'Balance today ($)'}><${Num} value=${d.balance} onInput=${v => set('balance', v)} /><//>` : null}
+      ${future ? html`
+        <${Field} label="Money goes to" hint="An account, or another debt it pays off (balance transfer, refinance)">
+          <${Select} value=${d.proceedsTo} empty="Nowhere (already spent)" onChange=${v => set('proceedsTo', v)} options=${[...accountOptions(plan), ...plan.debts.filter(x => x.id !== d.id).map(x => ({ value: x.id, label: `Pay off ${x.name}` }))]} />
+        <//>
+        ${toDebt ? html`<${Field} label=" "><label class="check"><input type="checkbox" checked=${!!d.transferAll} onChange=${e => set('transferAll', e.target.checked)} /> Transfer the whole balance</label><//>` : null}
+        <${Field} label="Upfront fee (%)" hint="Added to the balance (e.g. 3% transfer fee)"><${Num} value=${d.feePct} onInput=${v => set('feePct', v)} /><//>` : null}
+      <${Field} label="Credit limit ($)" hint="Set for a line of credit you can draw from (HELOC, card)"><${Num} value=${d.creditLimit} onInput=${v => set('creditLimit', v)} /><//>
+    </div>
+    <div>
+      <div class="section-label">Interest</div>
+      <div class="form-grid">
+        <${Field} label="Rate (%/yr)"><${Num} value=${d.rate} onInput=${v => set('rate', v)} /><//>
+      </div>
+      <div style="margin-top:10px"><${RateSteps} steps=${d.rateSteps || []} onChange=${v => set('rateSteps', v)} /></div>
+    </div>
+    <div>
+      <div class="section-label">Payments</div>
+      <div class="form-grid">
+        <${Field} label="How payments work"><${Select} value=${rule} onChange=${v => set('paymentRule', v)} options=${PAYMENT_RULES.map(r => ({ value: r.id, label: r.label }))} /><//>
+        ${rule === 'fixed' ? html`<${Field} label="Monthly payment ($)"><${Num} value=${d.payment} onInput=${v => set('payment', v)} /><//>` : null}
+        ${rule === 'minimum' ? html`<${Field} label="Minimum (% of balance)" hint="Plus interest, at least the $ floor"><${Num} value=${d.minPct ?? 1} onInput=${v => set('minPct', v)} /><//><${Field} label="Minimum floor ($)"><${Num} value=${d.payment} onInput=${v => set('payment', v)} /><//>` : null}
+        ${rule === 'amortize' ? html`<${Field} label="Term (months)" hint="Payment is recalculated if the rate changes"><${Num} value=${d.termMonths} min="1" step="1" onInput=${v => set('termMonths', v)} /><//>` : null}
+        <${Field} label="Payment day"><${Num} value=${d.paymentDay} min="1" step="1" onInput=${v => set('paymentDay', v)} /><//>
+        <${Field} label="Pay off in full on" hint="e.g. the end of a 0% promo"><${DateIn} value=${d.payoffDate} onInput=${v => set('payoffDate', v)} /><//>
+        <${Field} label="Payments come from" wide><${Waterfall} plan=${plan} value=${d.payFrom} onChange=${v => set('payFrom', v)} /><//>
+      </div>
+    </div>
+    <div class="form-grid">
+      <${Field} label="Secured by" hint="Paid off from the proceeds when this asset is sold"><${Select} value=${d.securedBy} empty="Nothing" onChange=${v => set('securedBy', v)} options=${accountOptions(plan, a => a.kind === 'property' || a.kind === 'other')} /><//>
+      ${isLine ? html`<${Field} label=" "><label class="check"><input type="checkbox" checked=${(plan.settings.safetyNet || []).includes(d.id)} onChange=${e => store.update(p => {
+        const list = new Set(p.settings.safetyNet || []);
+        if (e.target.checked) list.add(d.id); else list.delete(d.id);
+        p.settings.safetyNet = [...list];
+      }, { skipHistory: false })} /> Use as a safety net when cash runs out</label><//>` : null}
+    </div>`;
+}
+
+function RateSteps({ steps = [], onChange }) {
+  return html`<div class="stack" style="gap:8px">
+    ${steps.map((st, i) => html`<div class="row" key=${i}>
+      <span class="small muted" style="width:46px">From</span>
+      <div style="flex:1"><${DateIn} value=${st.date} onInput=${v => onChange(steps.map((x, j) => (j === i ? { ...x, date: v } : x)))} /></div>
+      <div style="flex:1"><${Num} value=${st.rate} placeholder="Rate %" onInput=${v => onChange(steps.map((x, j) => (j === i ? { ...x, rate: v } : x)))} /></div>
+      <button type="button" class="btn sm icon ghost" aria-label="Remove rate change" onClick=${() => onChange(steps.filter((_, j) => j !== i))}>×</button>
+    </div>`)}
+    <div><button type="button" class="btn sm" onClick=${() => onChange([...steps, { date: todayYMD(), rate: null }])}>+ Add a rate change (promo ends, reset…)</button></div>
   </div>`;
 }
 

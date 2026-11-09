@@ -8,7 +8,7 @@ import { navigate } from './nav.js';
 
 export const PATCHABLE = {
   accounts: [['balance', 'Balance', 'number'], ['growth', 'Growth %/yr', 'number'], ['costBasis', 'Cost basis', 'number'], ['ownedFrom', 'Owned from', 'date']],
-  debts: [['balance', 'Balance', 'number'], ['rate', 'Rate %', 'number'], ['payment', 'Monthly payment', 'number'], ['payoffDate', 'Pay off on', 'date'], ['start', 'Starts on', 'date']],
+  debts: [['balance', 'Balance / amount', 'number'], ['rate', 'Rate %', 'number'], ['payment', 'Monthly payment', 'number'], ['payoffDate', 'Pay off on', 'date'], ['start', 'Starts on', 'date'], ['creditLimit', 'Credit limit', 'number'], ['termMonths', 'Term (months)', 'number'], ['feePct', 'Upfront fee %', 'number'], ['enabled', 'Included (true/false)', 'bool']],
   flows: [['amount', 'Amount', 'number'], ['growth', 'Growth %/yr', 'number'], ['schedule.start', 'Start date', 'date'], ['schedule.end', 'End date', 'date'], ['enabled', 'Included (true/false)', 'bool']],
   events: [['date', 'Date', 'date'], ['price', 'Price', 'number'], ['costPct', 'Selling costs %', 'number'], ['amount', 'Amount', 'number'], ['loanAmount', 'Loan amount', 'number'], ['enabled', 'Included (true/false)', 'bool']],
   units: [['price', 'Price today', 'number'], ['growth', 'Growth %/yr', 'number']]

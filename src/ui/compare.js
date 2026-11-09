@@ -9,6 +9,7 @@ import { newId } from '../engine/model.js';
 import { formatMonthYear, formatDate } from '../engine/dates.js';
 import { LensPicker, RangePicker, Diagnostics } from './overview.js';
 import { toast } from './toast.js';
+import { DriversView, drivers } from './breakdown.js';
 
 const MAX_SCENARIOS = 5;
 
@@ -111,16 +112,25 @@ export function Compare() {
           <div>
             <div class="lead">${verdictText(c, scenarioName(plan, refId), oName, compact)}</div>
             <div class="verdict-tags">
-              <span class=${cls('badge', c.longTerm === 'better' ? 'pos' : c.longTerm === 'worse' ? 'neg' : '')}>Long term: ${c.longTerm === 'negligible' ? 'negligible' : c.longTerm === 'small' ? 'small, but watch cash' : c.longTerm}</span>
+              <span class=${cls('badge', c.longTerm === 'better' ? 'pos' : c.longTerm === 'worse' ? 'neg' : '')}>Long term: ${c.longTerm === 'negligible' ? 'negligible' : c.longTerm === 'small' ? 'little difference' : c.longTerm}</span>
               <span class=${cls('badge', c.cashDelta1y > 1000 ? 'pos' : c.cashDelta1y < -1000 ? 'neg' : '')}>Cash in 1 yr: ${signed(c.cashDelta1y)}</span>
               <span class=${cls('badge', c.liquidityDelta > 1000 ? 'pos' : c.liquidityDelta < -1000 ? 'neg' : '')}>Lowest cash (3 yrs): ${signed(c.liquidityDelta)}</span>
               ${c.oBreach ? html`<span class="badge warn">Dips below floor</span>` : html`<span class="badge pos">Stays above floor</span>`}
               ${c.firstCrossover && c.crossovers.length > 1 ? html`<span class="badge">First crosses ${formatMonthYear(c.firstCrossover.date)}</span>` : null}
+              ${(() => { const top = drivers(ref.run, runs.find(r => r.scenarioId === c.scenarioId).run, Math.min(years, plan.horizonYears), 1)[0]; return top ? html`<span class="badge blue">Main driver: ${top.label} (${signed(top.value)})</span>` : null; })()}
             </div>
           </div>
         </div>`;
       })}
     </div>` : html`<div class="notice info">Select a second scenario to see the comparison.</div>`}
+
+    ${others.length ? html`<div class="card">
+      <div class="card-head"><h3>What drives the difference</h3><span class="small muted">Nominal dollars · first ${Math.min(years, plan.horizonYears)} years (change with the range buttons)</span></div>
+      ${others.map(o => html`<div style="border-bottom:1px solid var(--border)">
+        <div class="row" style="padding:12px 18px 0"><span class="dot" style=${`background:${scenarioColor(plan, o.scenarioId)}`}></span><b>${scenarioName(plan, o.scenarioId)}</b></div>
+        <${DriversView} refRun=${ref.run} run=${o.run} years=${Math.min(years, plan.horizonYears)} refName=${scenarioName(plan, refId)} name=${scenarioName(plan, o.scenarioId)} />
+      </div>`)}
+    </div>` : null}
 
     <div class="card">
       <div class="chart-toolbar">

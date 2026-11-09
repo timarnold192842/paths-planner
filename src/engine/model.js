@@ -36,6 +36,7 @@ export function defaultSettings() {
     cashFloor: 25000,
     inflation: 2.5,
     negligiblePct: 2,
+    safetyNet: [],
     tax: {
       enabled: true,
       ordinary: 24,

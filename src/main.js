@@ -9,6 +9,7 @@ import { Scenarios } from './ui/scenarios.js';
 import { Decisions } from './ui/decisions.js';
 import { Plan } from './ui/plan.js';
 import { Settings } from './ui/settings.js';
+import { CheckIn } from './ui/checkin.js';
 import { Toasts } from './ui/toast.js';
 import { Icon } from './ui/icons.js';
 
@@ -56,6 +57,7 @@ function App() {
     case 'decisions': body = html`<${Decisions} />`; break;
     case 'plan': body = html`<${Plan} tab=${sub || 'flows'} />`; break;
     case 'settings': body = html`<${Settings} />`; break;
+    case 'checkin': body = html`<${CheckIn} />`; break;
     default: body = html`<${Overview} scenarioId=${activeScenario} />`;
   }
 

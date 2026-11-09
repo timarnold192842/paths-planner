@@ -6,6 +6,7 @@ export function demoPlan() {
   const asOf = todayYMD();
   const t0 = parseYMD(asOf);
   const m = n => toYMD(addMonths(t0, n));
+  const dayBefore = ymd => toYMD(new Date(parseYMD(ymd).getTime() - 86400000));
   const firstOf = n => { const d = addMonths(t0, n); return toYMD(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))); };
 
   const settings = defaultSettings();
@@ -52,7 +53,9 @@ export function demoPlan() {
     debts: [
       { id: 'home-mortgage', name: 'Home mortgage', balance: 402000, rate: 3.1, payment: 2640, paymentDay: 1, securedBy: 'home', payFrom: [] },
       { id: 'condo-mortgage', name: 'Condo mortgage', balance: 188000, rate: 6.5, payment: 1460, paymentDay: 5, securedBy: 'condo', payFrom: [] },
-      { id: 'car-loan', name: 'Car loan', balance: 19500, rate: 7.9, payment: 540, paymentDay: 20, securedBy: 'car', payFrom: [] }
+      { id: 'car-loan', name: 'Car loan', balance: 19500, rate: 7.9, payment: 540, paymentDay: 20, securedBy: 'car', payFrom: [] },
+      { id: 'promo-card', name: '0% intro card', balance: 20000, start: m(3), proceedsTo: 'checking', feePct: 3, rate: 0, rateSteps: [{ date: m(21), rate: 24.99 }], paymentRule: 'minimum', minPct: 1, payment: 35, paymentDay: 12, payoffDate: dayBefore(m(21)), payFrom: [], when: { 'd-remodel': ['card'] } },
+      { id: 'heloc', name: 'Home equity line', balance: 45000, start: m(3), proceedsTo: 'checking', creditLimit: 120000, rate: 8.25, paymentRule: 'interestOnly', paymentDay: 1, payoffDate: m(39), securedBy: 'home', payFrom: [], when: { 'd-remodel': ['heloc'] } }
     ],
     flows: [
       { id: 'salary', name: 'Salary (net)', group: 'g-income', amount: 6900, growth: 3, schedule: { freq: 'semimonthly', start: firstOf(0), days: [15, 'last'] }, from: [], to: 'checking', steps: [] },
@@ -68,6 +71,7 @@ export function demoPlan() {
       { id: 'acme-vest', name: 'ACME RSU vest', group: 'g-equity', amount: 420, unitId: 'acme', withholdPct: 35, schedule: { freq: 'quarterly', start: firstOf(1), end: m(48), dayOfMonth: 20 }, from: [], to: 'acme-shares', steps: [] },
       { id: '401k-contrib', name: '401(k) contribution', group: 'g-saving', amount: 900, growth: 2, schedule: { freq: 'semimonthly', start: firstOf(0), days: [15, 'last'] }, from: ['checking'], to: '401k', steps: [] },
       { id: '529-contrib', name: '529 contribution', group: 'g-kids', amount: 300, schedule: { freq: 'monthly', start: firstOf(1), end: m(110), dayOfMonth: 5 }, from: ['checking'], to: 'maya-529', steps: [] },
+      { id: 'remodel', name: 'Kitchen remodel', group: 'g-home', amount: 45000, schedule: { freq: 'once', start: m(3) }, from: [], to: null, steps: [] },
       { id: 'college', name: "Maya's college", group: 'g-kids', amount: 34000, growth: 4, qualified: 'education', schedule: { freq: 'annual', start: m(116), end: m(160), month: 8, dayOfMonth: 15 }, from: ['maya-529'], to: null, steps: [] }
     ],
     events: [
@@ -86,6 +90,11 @@ export function demoPlan() {
         { id: 'normal', name: 'Keep the schedule', patches: [] },
         { id: 'payoff', name: 'Pay off now from savings', patches: [] }
       ] },
+      { id: 'd-remodel', name: 'Paying for the remodel', notes: '$45k kitchen remodel in 3 months: pay cash, float part of it on a 0% card, or draw on a home equity line?', defaultAlt: 'cash', alternatives: [
+        { id: 'cash', name: 'Pay cash', patches: [] },
+        { id: 'card', name: '$20k on a 0% card for 18 months', patches: [] },
+        { id: 'heloc', name: 'Home equity line, repay in 3 years', patches: [] }
+      ] },
       { id: 'd-acme', name: 'ACME shares', notes: 'Hold company stock, or sell some every quarter into the brokerage account?', defaultAlt: 'hold', alternatives: [
         { id: 'hold', name: 'Hold everything', patches: [] },
         { id: 'diversify', name: 'Sell 12% per quarter for 3 years', patches: [] }
@@ -103,11 +112,14 @@ export function demoPlan() {
       { id: 'baseline', name: 'Baseline', color: SCENARIO_COLORS[0], choices: {}, cases: {}, patches: [], notes: 'Keep the condo, keep the car schedule, hold ACME.' },
       { id: 's-sell-condo', name: 'Sell condo this spring', color: SCENARIO_COLORS[1], choices: { 'd-condo': 'sell-soon' }, cases: {}, patches: [] },
       { id: 's-car', name: 'Pay off car now', color: SCENARIO_COLORS[2], choices: { 'd-car': 'payoff' }, cases: {}, patches: [] },
+      { id: 's-heloc', name: 'Remodel on a HELOC', color: SCENARIO_COLORS[4], choices: { 'd-remodel': 'heloc' }, cases: {}, patches: [] },
+      { id: 's-card', name: 'Remodel on a 0% card', color: SCENARIO_COLORS[5], choices: { 'd-remodel': 'card' }, cases: {}, patches: [] },
       { id: 's-diversify', name: 'Sell condo + diversify ACME', color: SCENARIO_COLORS[3], basedOn: 's-sell-condo', choices: { 'd-acme': 'diversify' }, cases: {}, patches: [] }
     ],
     comparisons: [
       { id: 'c-condo', name: 'Should we sell the condo?', referenceId: 'baseline', scenarioIds: ['baseline', 's-sell-condo'], stressAssumptionId: 'a-homes' },
       { id: 'c-acme', name: 'Diversify out of ACME?', referenceId: 's-sell-condo', scenarioIds: ['s-sell-condo', 's-diversify'], stressAssumptionId: 'a-acme' },
+      { id: 'c-remodel', name: 'How should we pay for the remodel?', referenceId: 'baseline', scenarioIds: ['baseline', 's-card', 's-heloc'], stressAssumptionId: '' },
       { id: 'c-car', name: 'Pay off the car early?', referenceId: 'baseline', scenarioIds: ['baseline', 's-car'], stressAssumptionId: '' }
     ],
     updatedAt: new Date().toISOString()

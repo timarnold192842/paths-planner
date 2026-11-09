@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import { html, money, cls } from './h.js';
 import { store, useUI } from '../store.js';
 import { newId, SCENARIO_COLORS, COLLECTIONS, findItem } from '../engine/model.js';
-import { addMonths, parseYMD, toYMD, todayYMD } from '../engine/dates.js';
+import { addMonths, addDays, parseYMD, toYMD, todayYMD } from '../engine/dates.js';
 import { ItemSheet, Field, Num, Text, DateIn, Select, Waterfall, accountOptions, debtOptions } from './editors.js';
 import { PatchEditor } from './scenarios.js';
 import { toast } from './toast.js';
@@ -32,6 +32,7 @@ export function Decisions() {
       <div class="row">
         <select value="" onChange=${e => { if (e.target.value) setTemplate(e.target.value); e.target.value = ''; }} aria-label="New decision" style="width:auto">
           <option value="">+ New decision…</option>
+          <option value="borrow">Borrow money (credit line, 0% card, loan)</option>
           <option value="sell">Sell or keep an asset</option>
           <option value="payoff">Pay off a debt early</option>
           <option value="stock">Sell company stock on a schedule</option>
@@ -178,10 +179,22 @@ function TemplateSheet({ kind, onClose, onDone }) {
     equityId: plan.accounts.find(a => a.kind === 'equity')?.id, pct: 10, years: 3, to: plan.accounts.find(a => a.kind === 'brokerage')?.id,
     groupId: plan.groups[0]?.id,
     homeName: 'New home', price: 500000, downPct: 20, rate: 6.5, term: 30, growth: 3, taxPct: 1.2, insurance: 1800, upkeepPct: 1,
-    makeScenario: true
+    makeScenario: true,
+    bKind: 'line', bName: 'Home equity line', bStart: monthsFromNow(1), bLimit: 100000, bDraw: 0, bAmount: 10000, bRate: 8.5,
+    bPromoRate: 0, bPromoMonths: 18, bAfterRate: 24.99, bFeePct: 3, bMinPct: 1, bMinFloor: 35, bPayoffAtEnd: true,
+    bTerm: 60, bTo: plan.settings.primaryCashId, bTransferAll: false, bSafety: true, bSecured: plan.accounts.find(a => a.primaryResidence)?.id || firstProp?.id
   });
   const set = (k, x) => setV(s => ({ ...s, [k]: x }));
-  const title = { sell: 'Sell or keep an asset', payoff: 'Pay off a debt early', stock: 'Sell company stock on a schedule', buy: 'Buy a home', group: 'Switch a group of cash flows on/off', blank: 'Blank decision' }[kind];
+  const setKind = k => setV(s => ({
+    ...s,
+    bKind: k,
+    bName: { line: 'Home equity line', promo: '0% intro card', loan: 'Personal loan' }[k],
+    bRate: { line: 8.5, promo: 0, loan: 9.5 }[k],
+    bFeePct: { line: 0, promo: 3, loan: 0 }[k]
+  }));
+  const proceedsOptions = [...accountOptions(plan), ...plan.debts.map(x => ({ value: x.id, label: `Pay off ${x.name}` }))];
+  const proceedsIsDebt = plan.debts.some(x => x.id === v.bTo);
+  const title = { borrow: 'Borrow money', sell: 'Sell or keep an asset', payoff: 'Pay off a debt early', stock: 'Sell company stock on a schedule', buy: 'Buy a home', group: 'Switch a group of cash flows on/off', blank: 'Blank decision' }[kind];
 
   const create = () => {
     const decId = newId('dec');
@@ -190,7 +203,24 @@ function TemplateSheet({ kind, onClose, onDone }) {
     let decision;
     const items = { accounts: [], debts: [], flows: [], events: [] };
     const tagFlows = [];
-    if (kind === 'sell') {
+    if (kind === 'borrow') {
+      const debtId = newId('debt');
+      const w = { [decId]: [altB] };
+      const base = { id: debtId, name: v.bName || 'New loan', start: v.bStart, paymentDay: 1, payFrom: [], when: w };
+      let debt;
+      if (v.bKind === 'line') {
+        debt = { ...base, balance: v.bDraw || 0, proceedsTo: v.bDraw ? v.bTo : undefined, creditLimit: v.bLimit, rate: v.bRate, paymentRule: 'interestOnly', securedBy: v.bSecured || undefined };
+      } else if (v.bKind === 'promo') {
+        const end = toYMD(addMonths(parseYMD(v.bStart), v.bPromoMonths || 12));
+        debt = { ...base, balance: v.bAmount, proceedsTo: v.bTo, transferAll: proceedsIsDebt && v.bTransferAll, feePct: v.bFeePct, rate: v.bPromoRate,
+          rateSteps: [{ date: end, rate: v.bAfterRate }], paymentRule: 'minimum', minPct: v.bMinPct, payment: v.bMinFloor, payoffDate: v.bPayoffAtEnd ? toYMD(addDays(parseYMD(end), -1)) : undefined };
+      } else {
+        debt = { ...base, balance: v.bAmount, proceedsTo: v.bTo, transferAll: proceedsIsDebt && v.bTransferAll, feePct: v.bFeePct, rate: v.bRate, paymentRule: 'amortize', termMonths: v.bTerm };
+      }
+      items.debts.push(debt);
+      decision = { id: decId, name: `${debt.name}?`, defaultAlt: altA, alternatives: [{ id: altA, name: "Don't borrow", patches: [] }, { id: altB, name: `Open ${debt.name}`, patches: [] }] };
+      if (v.bKind === 'line' && v.bSafety) tagFlows.push({ safetyNet: debtId });
+    } else if (kind === 'sell') {
       const asset = plan.accounts.find(a => a.id === v.assetId);
       if (!asset) return toast('Choose an asset.', 'err');
       decision = { id: decId, name: `${asset.name}: keep or sell?`, defaultAlt: altA, alternatives: [{ id: altA, name: `Keep ${asset.name}`, patches: [] }, { id: altB, name: `Sell ${v.date}`, patches: [] }] };
@@ -235,6 +265,7 @@ function TemplateSheet({ kind, onClose, onDone }) {
       p.decisions.push(decision);
       for (const coll of Object.keys(items)) p[coll].push(...items[coll]);
       for (const t of tagFlows) {
+        if (t.safetyNet) { p.settings.safetyNet = [...new Set([...(p.settings.safetyNet || []), t.safetyNet])]; continue; }
         for (const f of p.flows) if (f.group === t.group) f.when = { ...(f.when || {}), [decId]: [t.alt] };
       }
       if (v.makeScenario && kind !== 'blank') {
@@ -252,6 +283,34 @@ function TemplateSheet({ kind, onClose, onDone }) {
     <div class="sheet" role="dialog" aria-modal="true" aria-label=${title}>
       <div class="sheet-head"><h3>${title}</h3><button class="btn icon ghost" aria-label="Close" onClick=${onClose}>✕</button></div>
       <div class="sheet-body">
+        ${kind === 'borrow' ? html`
+          <div class="seg">${[['line', 'Line of credit (HELOC)'], ['promo', '0% intro card / transfer'], ['loan', 'Installment loan']].map(([k, l]) => html`<button type="button" class=${v.bKind === k ? 'on' : ''} onClick=${() => setKind(k)}>${l}</button>`)}</div>
+          <div class="form-grid">
+            <${Field} label="Name"><${Text} value=${v.bName} onInput=${x => set('bName', x)} /><//>
+            <${Field} label="Opens on"><${DateIn} value=${v.bStart} onInput=${x => set('bStart', x)} /><//>
+            ${v.bKind === 'line' ? html`
+              <${Field} label="Credit limit ($)"><${Num} value=${v.bLimit} onInput=${x => set('bLimit', x)} /><//>
+              <${Field} label="Rate (%/yr)"><${Num} value=${v.bRate} onInput=${x => set('bRate', x)} /><//>
+              <${Field} label="Draw on day one ($)" hint="Optional"><${Num} value=${v.bDraw} onInput=${x => set('bDraw', x)} /><//>
+              <${Field} label="Draw goes to"><${Select} value=${v.bTo} onChange=${x => set('bTo', x)} options=${accountOptions(plan)} /><//>
+              <${Field} label="Secured by"><${Select} value=${v.bSecured} empty="Nothing" onChange=${x => set('bSecured', x)} options=${accountOptions(plan, a => a.kind === 'property')} /><//>
+              <${Field} label=" " wide><label class="check"><input type="checkbox" checked=${v.bSafety} onChange=${e => set('bSafety', e.target.checked)} /> Draw automatically when cash would go negative (safety net)</label><//>` : html`
+              <${Field} label="Amount ($)" hint=${proceedsIsDebt && v.bTransferAll ? 'Ignored — the whole balance transfers' : null}><${Num} value=${v.bAmount} onInput=${x => set('bAmount', x)} /><//>
+              <${Field} label="Money goes to"><${Select} value=${v.bTo} onChange=${x => set('bTo', x)} options=${proceedsOptions} /><//>
+              ${proceedsIsDebt ? html`<${Field} label=" "><label class="check"><input type="checkbox" checked=${v.bTransferAll} onChange=${e => set('bTransferAll', e.target.checked)} /> Transfer the whole balance</label><//>` : null}
+              <${Field} label="Upfront fee (%)"><${Num} value=${v.bFeePct} onInput=${x => set('bFeePct', x)} /><//>`}
+            ${v.bKind === 'promo' ? html`
+              <${Field} label="Intro rate (%)"><${Num} value=${v.bPromoRate} onInput=${x => set('bPromoRate', x)} /><//>
+              <${Field} label="Intro period (months)"><${Num} value=${v.bPromoMonths} onInput=${x => set('bPromoMonths', x)} /><//>
+              <${Field} label="Rate afterwards (%)"><${Num} value=${v.bAfterRate} onInput=${x => set('bAfterRate', x)} /><//>
+              <${Field} label="Minimum payment (% of balance)"><${Num} value=${v.bMinPct} onInput=${x => set('bMinPct', x)} /><//>
+              <${Field} label="Minimum floor ($)"><${Num} value=${v.bMinFloor} onInput=${x => set('bMinFloor', x)} /><//>
+              <${Field} label=" " wide><label class="check"><input type="checkbox" checked=${v.bPayoffAtEnd} onChange=${e => set('bPayoffAtEnd', e.target.checked)} /> Pay off the rest when the intro period ends</label><//>` : null}
+            ${v.bKind === 'loan' ? html`
+              <${Field} label="Rate (%/yr)"><${Num} value=${v.bRate} onInput=${x => set('bRate', x)} /><//>
+              <${Field} label="Term (months)" hint=${`≈ ${money(amortizedPayment(v.bAmount * (1 + (v.bFeePct || 0) / 100), v.bRate, (v.bTerm || 12) / 12))}/mo`}><${Num} value=${v.bTerm} onInput=${x => set('bTerm', x)} /><//>` : null}
+          </div>
+          <p class="small muted">Creates the debt inside a "Borrow / don't borrow" decision. Interest, fees, payments and payoff all follow from these terms — edit them anytime under Plan → Debts.</p>` : null}
         ${kind === 'sell' ? html`<div class="form-grid">
           <${Field} label="Asset"><${Select} value=${v.assetId} onChange=${x => set('assetId', x)} options=${accountOptions(plan, a => ['property', 'other', 'brokerage'].includes(a.kind))} /><//>
           <${Field} label="Sale date"><${DateIn} value=${v.date} onInput=${x => set('date', x)} /><//>

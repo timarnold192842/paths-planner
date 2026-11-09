@@ -38,7 +38,7 @@ export function Plan({ tab = 'flows' }) {
         return html`<div class="group-title">${k.label}</div>${list.map(a => {
           const unit = plan.units.find(u => u.id === a.unitId);
           return html`<div class="list-item" onClick=${() => open('accounts', a.id)}>
-            <div class="title"><span class="name">${a.name}</span>${a.id === plan.settings.primaryCashId ? html`<span class="badge blue">Primary cash</span>` : null}${a.when ? html`<span class="badge blue">${whenLabel(plan, a.when)}</span>` : null}${a.primaryResidence ? html`<span class="badge">Home</span>` : null}</div>
+            <div class="title"><span class="name">${a.name}</span>${a.id === plan.settings.primaryCashId ? html`<span class="badge blue">Primary cash</span>` : null}${a.when ? html`<span class="badge blue" title=${whenLabel(plan, a.when, true)}>Only if: ${whenLabel(plan, a.when)}</span>` : null}${a.primaryResidence ? html`<span class="badge">Home</span>` : null}</div>
             <div class="meta">${a.growth ? `${a.growth}%/yr` : 'No growth'}${unit ? ` · ${a.balance.toLocaleString()} ${unit.symbol} @ ${money(unit.price, true)}` : ''}${a.costBasis != null && a.costBasis !== '' ? ` · basis ${compact(a.costBasis)}` : ''}${a.ownedFrom ? ` · from ${formatDate(a.ownedFrom)}` : ''}</div>
             <div class="amount">${money((a.balance || 0) * (unit ? unit.price : 1))}</div>
           </div>`;
@@ -49,8 +49,8 @@ export function Plan({ tab = 'flows' }) {
 
     ${tab === 'debts' ? html`<div class="card"><div class="list">
       ${plan.debts.filter(match).map(d => html`<div class=${cls('list-item', d.enabled === false && 'off')} onClick=${() => open('debts', d.id)}>
-        <div class="title"><span class="name">${d.name}</span>${d.securedBy ? html`<span class="badge">Secured by ${name(d.securedBy)}</span>` : null}${d.when ? html`<span class="badge blue">${whenLabel(plan, d.when)}</span>` : null}${d.enabled === false ? html`<span class="badge">Off</span>` : null}</div>
-        <div class="meta">${d.rate || 0}% · ${money(d.payment)}/mo on day ${d.paymentDay || 1}${d.payoffDate ? ` · paid off ${formatDate(d.payoffDate)}` : ''}${d.start ? ` · starts ${formatDate(d.start)}` : ''}</div>
+        <div class="title"><span class="name">${d.name}</span>${Number(d.creditLimit) > 0 ? html`<span class="badge">Credit line ${compact(d.creditLimit)}</span>` : null}${(plan.settings.safetyNet || []).includes(d.id) ? html`<span class="badge pos">Safety net</span>` : null}${d.securedBy ? html`<span class="badge">Secured by ${name(d.securedBy)}</span>` : null}${d.when ? html`<span class="badge blue" title=${whenLabel(plan, d.when, true)}>Only if: ${whenLabel(plan, d.when)}</span>` : null}${d.enabled === false ? html`<span class="badge">Off</span>` : null}</div>
+        <div class="meta">${d.rate || 0}%${(d.rateSteps || []).length ? ` → ${d.rateSteps.map(x => `${x.rate}% from ${formatDate(x.date)}`).join(', ')}` : ''} · ${{ amortize: `paid off over ${d.termMonths || '?'} months`, interestOnly: 'interest only', minimum: `minimum ${d.minPct ?? 1}% (≥ ${money(d.payment)})` }[d.paymentRule] || `${money(d.payment)}/mo`}${d.payoffDate ? ` · paid off ${formatDate(d.payoffDate)}` : ''}${d.start ? ` · starts ${formatDate(d.start)}` : ''}${d.proceedsTo ? ` · → ${name(d.proceedsTo)}` : ''}</div>
         <div class="amount">${money(d.balance)}</div>
       </div>`)}
       ${!plan.debts.length ? html`<div class="empty">No debts.</div>` : null}
@@ -72,7 +72,7 @@ export function Plan({ tab = 'flows' }) {
             const unit = plan.units.find(u => u.id === f.unitId);
             return html`<div class=${cls('list-item', f.enabled === false && 'off')} onClick=${() => open('flows', f.id)}>
               <div class="title"><span class="name">${f.name}</span>
-                ${f.when ? html`<span class="badge blue">${whenLabel(plan, f.when)}</span>` : null}
+                ${f.when ? html`<span class="badge blue" title=${whenLabel(plan, f.when, true)}>Only if: ${whenLabel(plan, f.when)}</span>` : null}
                 ${f.whileOwned ? html`<span class="badge">While own ${name(f.whileOwned)}</span>` : null}
                 ${(f.steps || []).length ? html`<span class="badge">Changes ×${f.steps.length}</span>` : null}
                 ${f.enabled === false ? html`<span class="badge">Off</span>` : null}
@@ -87,7 +87,7 @@ export function Plan({ tab = 'flows' }) {
 
     ${tab === 'events' ? html`<div class="card"><div class="list">
       ${plan.events.filter(match).map(e => html`<div class=${cls('list-item', e.enabled === false && 'off')} onClick=${() => open('events', e.id)}>
-        <div class="title"><span class="name">${e.name || e.type}</span><span class="badge">${{ sell: 'Sale', buy: 'Purchase', payoff: 'Payoff', liquidate: 'Share sale' }[e.type] || e.type}</span>${e.when ? html`<span class="badge blue">${whenLabel(plan, e.when)}</span>` : null}</div>
+        <div class="title"><span class="name">${e.name || e.type}</span><span class="badge">${{ sell: 'Sale', buy: 'Purchase', payoff: 'Payoff', liquidate: 'Share sale' }[e.type] || e.type}</span>${e.when ? html`<span class="badge blue" title=${whenLabel(plan, e.when, true)}>Only if: ${whenLabel(plan, e.when)}</span>` : null}</div>
         <div class="meta">${e.type === 'liquidate' && e.schedule ? describeSchedule(e.schedule) : formatDate(e.date)}${e.assetId ? ` · ${name(e.assetId)}` : ''}${e.debtId ? ` · ${name(e.debtId)}` : ''}</div>
         <div class="amount">${e.price ? money(e.price) : e.type === 'liquidate' ? (e.mode === 'percent' ? `${e.amount}%` : e.mode === 'usd' ? money(e.amount) : `${e.amount} sh`) : ''}</div>
       </div>`)}

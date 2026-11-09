@@ -164,6 +164,7 @@ export function verdictText(cmp, refName, oName, fmtMoney) {
   const pct = `${(Math.abs(cmp.endPct) * 100).toFixed(1)}%`;
   const parts = [];
   if (cmp.longTerm === 'negligible') parts.push(`${oName} ends within ${pct} of ${refName} — negligible long-term`);
+  else if (cmp.longTerm === 'small') parts.push(`${oName} ends within ${pct} of ${refName} — little long-term difference`);
   else parts.push(`${oName} ends ${fmtMoney(Math.abs(cmp.endDelta))} (${pct}) ${cmp.endDelta >= 0 ? 'above' : 'below'} ${refName}`);
   if (Math.abs(cmp.liquidityDelta) >= 1000) {
     parts.push(`its lowest cash in the next 3 years is ${fmtMoney(Math.abs(cmp.liquidityDelta))} ${cmp.liquidityDelta > 0 ? 'higher' : 'lower'}`);
