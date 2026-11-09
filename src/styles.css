@@ -282,3 +282,26 @@ details.more[open] > summary { margin-bottom: 10px; }
   .whatif { grid-template-columns: 1fr; }
   .whatif-controls { border-right: 0; border-bottom: 1px solid var(--border); }
 }
+
+/* paychecks */
+.paybox { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; background: var(--surface-2); }
+.paybox > .check { align-items: flex-start; }
+.paybox > .check input { margin-top: 2px; flex: none; }
+.ded { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--surface); display: flex; flex-direction: column; gap: 10px; }
+.ded-head { display: flex; gap: 8px; align-items: center; }
+.ded-head input { font-weight: 650; }
+.seg.sm { flex: none; flex-wrap: nowrap; }
+.seg.sm button { padding: 4px 9px; }
+.linkish { border: 0; background: none; padding: 0; color: var(--primary); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
+.paystub { border-top: 1px dashed var(--border-strong); padding-top: 10px; }
+.tbl.compact th, .tbl.compact td { padding: 5px 10px; font-size: 13px; }
+.tbl tr.total td { font-weight: 700; border-top: 1px solid var(--border-strong); }
+.tbl tr.muted td { color: var(--muted); }
+.paynotes { margin: 8px 0 0; padding-left: 18px; color: var(--text); }
+.paynotes li { margin: 2px 0; }
+.tbl.compact td:first-child { white-space: normal; }
+@media (max-width: 640px) {
+  .paybox { padding: 10px; margin: 0 -4px; }
+  .paystub .tbl.compact th, .paystub .tbl.compact td { padding: 5px 5px; font-size: 12.5px; }
+  .paystub .tbl.compact th:first-child, .paystub .tbl.compact td:first-child { padding-left: 2px; }
+}

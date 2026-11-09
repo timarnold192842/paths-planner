@@ -10,6 +10,8 @@
 
 import { addDays, parseYMD, toYMD } from './dates.js';
 import { clone } from './model.js';
+import { occurrences } from './schedule.js';
+import { amountAt } from './payroll.js';
 import { effectiveSelections, isActive } from './compile.js';
 
 export function rebaseline(plan, actuals, today, opts = {}) {
@@ -39,6 +41,20 @@ export function rebaseline(plan, actuals, today, opts = {}) {
       e.date = tomorrow;
       shifted.push({ kind: 'event', id: e.id, name: e.name || e.type });
     } else passed.push({ kind: 'event', id: e.id, name: e.name || e.type, date: e.date });
+  }
+
+  // Paychecks: roll "wages paid so far this year" forward so payroll caps stay right.
+  const newYear = parseYMD(today).getUTCFullYear();
+  const sameYear = newYear === parseYMD(from).getUTCFullYear();
+  for (const f of out.flows) {
+    if (!f.pay) continue;
+    // Pay from scenario-only or disabled jobs never arrived in real life.
+    if (!inReference(f) || f.enabled === false) { if (!sameYear) f.pay.ytdGross = 0; continue; }
+    const price = f.unitId ? Number(out.units.find(u => u.id === f.unitId)?.price) || 0 : 1;
+    let ytd = sameYear ? Number(f.pay.ytdGross) || 0 : 0;
+    const since = sameYear ? addDays(parseYMD(from), 1) : new Date(Date.UTC(newYear, 0, 1));
+    for (const d of occurrences(f.schedule, since, parseYMD(today))) ytd += amountAt(f, d) * price;
+    f.pay.ytdGross = Math.round(ytd);
   }
 
   out.history = [...(out.history || []), { date: today, netWorth: actualNetWorth, plannedNetWorth, previousAsOf: from }];

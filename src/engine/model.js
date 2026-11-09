@@ -39,6 +39,7 @@ export function defaultSettings() {
     safetyNet: [],
     tax: {
       enabled: true,
+      filing: 'mfj',
       ordinary: 24,
       ltcg: 15,
       state: 3.07,

@@ -101,7 +101,7 @@ export function Overview({ scenarioId }) {
           ${upcoming.length ? upcoming.map(l => html`<div class="list-item" style="cursor:default">
             <div class="title"><span class="name">${l.name}</span></div>
             <div class="meta">${formatDate(l.date)}${l.tax ? ` · tax ${money(l.tax)}` : ''}${l.note ? ` · ${l.note}` : ''}</div>
-            <div class=${cls('amount', l.kind === 'income' || l.kind === 'sell' || l.kind === 'liquidate' ? 'pos' : '')}>${l.kind === 'income' || l.kind === 'sell' || l.kind === 'liquidate' ? '+' : l.kind === 'transfer' ? '' : '−'}${money(l.amount)}</div>
+            <div class=${cls('amount', INFLOW.has(l.kind) ? 'pos' : '')}>${INFLOW.has(l.kind) ? '+' : l.kind === 'transfer' ? '' : '−'}${money(l.amount)}</div>
           </div>`) : html`<div class="empty">Nothing scheduled in the next 90 days.</div>`}
         </div>
       </div>
@@ -128,6 +128,35 @@ export function Overview({ scenarioId }) {
         </table>
       </div>
     </div>
+    <${TaxYears} plan=${plan} run=${run} />
+  </div>`;
+}
+
+const INFLOW = new Set(['income', 'sell', 'liquidate', 'refund']);
+
+function TaxYears({ plan, run }) {
+  const rows = run.taxYears || [];
+  if (!rows.length) return null;
+  return html`<div class="card">
+    <div class="card-head"><h3>Paychecks & taxes</h3><span class="small muted">Calendar years · withholding is trued up each April 15 · nominal dollars</span></div>
+    <div class="scroll-x" style="max-height:460px;overflow-y:auto">
+      <table class="tbl">
+        <thead><tr><th>Tax year</th><th>Wages</th><th>Pre-tax deductions</th><th>Est. federal</th><th>Est. state</th><th>Social Security & Medicare</th><th>Withheld</th><th>Refund / owed</th><th>Bracket</th></tr></thead>
+        <tbody>${rows.map(t => html`<tr>
+          <td>${t.year}${t.includesEarlier ? html`<span class="faint" title="Includes pay before the as-of date (“paid so far”)">*</span>` : ''}</td>
+          <td>${compact(t.wages)}</td>
+          <td>${compact(t.pretax)}</td>
+          <td>${compact(t.federal + t.addlMedicare)}</td>
+          <td>${compact(t.state)}</td>
+          <td>${compact(t.fica)}</td>
+          <td>${compact(t.withheld)}</td>
+          <td>${t.partial ? html`<span class="faint" title=${t.year > parseYMD(plan.asOf).getUTCFullYear() ? 'The plan ends before this year does' : 'Enter “Paid so far” on your paychecks to estimate this year'}>partial year</span>`
+            : html`<span class=${t.due > 0 ? 'neg' : 'pos'}>${t.due > 0 ? `owe ${compact(t.due)}` : `refund ${compact(-t.due)}`}</span><span class="faint small"> · ${t.settledOn ? formatMonthYear(t.settledOn) : 'after horizon'}</span>`}</td>
+          <td>${Math.round(t.marginal * 100)}%</td>
+        </tr>`)}</tbody>
+      </table>
+    </div>
+    ${rows.some(t => t.includesEarlier) ? html`<div class="card-pad small faint" style="padding-top:8px">* includes pay earlier in the year that you entered as “paid so far”.</div>` : null}
   </div>`;
 }
 

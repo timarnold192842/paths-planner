@@ -5,6 +5,8 @@ import { ACCOUNT_KINDS, kindInfo, newId, clone, setPath, getPath } from '../engi
 import { FREQUENCIES, describeSchedule, perYear } from '../engine/schedule.js';
 import { todayYMD } from '../engine/dates.js';
 import { PAYMENT_RULES } from '../engine/simulate.js';
+import { payPreview, suggestedFedPct, ssWageBase, PAYROLL } from '../engine/payroll.js';
+import { parseYMD } from '../engine/dates.js';
 
 // ---------- generic fields ----------
 export function Field({ label, hint, children, wide }) {
@@ -299,36 +301,152 @@ function FlowForm({ plan, d, set, setD }) {
   const unit = plan.units.find(u => u.id === d.unitId);
   const yearly = (Number(d.amount) || 0) * perYear(d.schedule) * (unit ? unit.price : 1);
   const toOptions = [...accountOptions(plan), ...debtOptions(plan).map(o => ({ ...o, label: `${o.label} · debt` }))];
+  const acctTo = plan.accounts.some(a => a.id === d.to);
   return html`
     <div class="seg" role="tablist" aria-label="Direction">
       ${[['expense', 'Expense'], ['income', 'Income'], ['transfer', 'Transfer']].map(([k, l]) => html`<button type="button" class=${dir === k ? 'on' : ''} onClick=${() => setDir(k)}>${l}</button>`)}
     </div>
     <div class="form-grid">
       <${Field} label="Name" wide><${Text} value=${d.name} onInput=${v => set('name', v)} /><//>
-      <${Field} label=${unit ? `Amount (${unit.symbol} shares)` : 'Amount ($)'} hint=${yearly ? `≈ ${money(yearly)}/yr today` : null}><${Num} value=${d.amount} onInput=${v => set('amount', v)} /><//>
+      <${Field} label=${unit ? `Amount (${unit.symbol} shares)` : d.pay ? 'Gross pay ($)' : 'Amount ($)'} hint=${yearly ? `≈ ${money(yearly)}/yr today${d.pay ? ' before taxes' : ''}` : null}><${Num} value=${d.amount} onInput=${v => set('amount', v)} /><//>
       <${Field} label="Denominated in"><${Select} value=${d.unitId} empty="US dollars" onChange=${v => set('unitId', v)} options=${plan.units.map(u => ({ value: u.id, label: `${u.name} shares` }))} /><//>
       <${Field} label="Grows (%/yr)" hint="Inflation, raises"><${Num} value=${d.growth} onInput=${v => set('growth', v)} /><//>
       <${Field} label="Group"><${GroupSelect} plan=${plan} value=${d.group} onChange=${v => set('group', v)} /><//>
       ${dir !== 'expense' ? html`<${Field} label="Goes to"><${Select} value=${d.to} onChange=${v => set('to', v || null)} options=${toOptions} /><//>` : null}
     </div>
     <div><div class="section-label">When</div><${ScheduleEditor} value=${d.schedule} onChange=${v => set('schedule', v)} /></div>
+    ${dir === 'income' && acctTo ? html`<div class="paybox">
+      <label class="check"><input type="checkbox" checked=${!!d.pay} onChange=${e => set('pay', e.target.checked ? newPay(plan, d) : undefined)} />
+        <span><b>This is a paycheck</b> <span class="small muted">— enter gross pay; payroll taxes, withholding and deductions come out automatically</span></span></label>
+      ${d.pay ? html`<${PaycheckEditor} plan=${plan} d=${d} set=${set} unit=${unit} />` : null}
+    </div>` : null}
     ${dir !== 'income' ? html`<div><div class="section-label">${dir === 'transfer' ? 'Comes from' : 'Paid from (in order)'}</div>
       <${Waterfall} plan=${plan} value=${d.from} onChange=${v => set('from', v)} fallbackNote=${dir === 'expense'} />
       ${dir === 'expense' ? html`<div class="row" style="margin-top:8px"><span class="small muted">Qualified for</span>
         <div class="seg">${[[undefined, 'None'], ['education', 'Education (529)'], ['medical', 'Medical (HSA)']].map(([k, l]) => html`<button type="button" class=${d.qualified === k ? 'on' : ''} onClick=${() => set('qualified', k)}>${l}</button>`)}</div></div>` : null}
     </div>` : null}
     <details class="more" open=${!!(d.steps?.length || d.whileOwned || d.taxed || d.withholdPct)}>
-      <summary>Changes over time, ownership & taxes</summary>
+      <summary>${d.pay ? 'Raises, pay changes & ownership' : 'Changes over time, ownership & taxes'}</summary>
       <div class="stack">
         <div><div class="section-label">Amount changes</div><${StepsEditor} steps=${d.steps || []} onChange=${v => set('steps', v)} /></div>
         <div class="form-grid">
           <${Field} label="Only while I own" hint="Stops automatically when this asset is sold"><${Select} value=${d.whileOwned} empty="—" onChange=${v => set('whileOwned', v)} options=${accountOptions(plan, a => a.kind === 'property' || a.kind === 'other' || a.kind === 'equity')} /><//>
-          ${dir === 'income' ? html`<${Field} label="Income tax"><${Select} value=${d.taxed} empty="Already net of tax" onChange=${v => set('taxed', v)} options=${[{ value: 'ordinary', label: 'Taxed at my ordinary rate' }]} /><//>` : null}
-          ${dir === 'income' && unit ? html`<${Field} label="Shares withheld for tax (%)" hint="Sell-to-cover at vest"><${Num} value=${d.withholdPct} onInput=${v => set('withholdPct', v)} /><//>` : null}
+          ${dir === 'income' && !d.pay ? html`<${Field} label="Income tax"><${Select} value=${d.taxed} empty="Already net of tax" onChange=${v => set('taxed', v)} options=${[{ value: 'ordinary', label: 'Taxed at my ordinary rate' }]} /><//>` : null}
+          ${dir === 'income' && unit && !d.pay ? html`<${Field} label="Shares withheld for tax (%)" hint="Sell-to-cover at vest"><${Num} value=${d.withholdPct} onInput=${v => set('withholdPct', v)} /><//>` : null}
         </div>
       </div>
     </details>`;
 }
+
+// ---------- paychecks ----------
+const DEDUCTION_PRESETS = [
+  { key: '401k', label: '401(k) / 403(b)', make: (plan, deds) => ({ name: '401(k)', pct: 6, to: plan.accounts.find(a => a.kind === 'traditional')?.id, pretax: true, annualLimit: PAYROLL.limit401k, employerPct: 0 }) },
+  { key: 'roth401k', label: 'Roth 401(k)', make: (plan, deds) => ({ name: 'Roth 401(k)', pct: 6, to: plan.accounts.find(a => a.kind === 'roth')?.id, pretax: false, annualLimit: PAYROLL.limit401k, limitWith: deds.find(x => /401|403/.test(x.name) && x.pretax)?.id }) },
+  { key: 'hsa', label: 'HSA', make: plan => ({ name: 'HSA', amount: 150, to: plan.accounts.find(a => a.kind === 'hsa')?.id, pretax: true, annualLimit: 8750, ficaExempt: true }) },
+  { key: 'insurance', label: 'Health insurance', make: () => ({ name: 'Health insurance', amount: 200, pretax: true, ficaExempt: true }) },
+  { key: 'other', label: 'Other', make: () => ({ name: 'Deduction', amount: 100, pretax: false }) }
+];
+
+function newPay(plan, d) {
+  const employer = plan.flows.find(f => f.pay && f.id !== d.id)?.pay.employer || 'Main job';
+  const pay = { employer, fica: true, fedPct: null, statePct: plan.settings.tax.state ?? 0, ytdGross: null, deductions: [] };
+  pay.fedPct = suggestedFedPct(plan, { ...d, pay }) ?? 15;
+  return pay;
+}
+
+function PaycheckEditor({ plan, d, set, unit }) {
+  const pay = d.pay;
+  const setPay = (k, v) => set(`pay.${k}`, v);
+  const deds = pay.deductions || [];
+  const setDed = (i, patch) => setPay('deductions', deds.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  const asOfYear = parseYMD(plan.asOf).getUTCFullYear();
+  const suggestion = useMemo(() => suggestedFedPct(plan, d), [plan, d]);
+  const tax = plan.settings.tax;
+  return html`<div class="stack" style="gap:12px;margin-top:10px">
+    <div class="form-grid">
+      <${Field} label="Employer" hint=${`Paychecks and stock vests from the same employer share Social Security's ${money(ssWageBase(asOfYear, plan.settings.inflation))} wage base`}><${Text} value=${pay.employer} onInput=${v => setPay('employer', v)} /><//>
+      <${Field} label="Federal withholding (% of taxable pay)" hint=${suggestion != null ? html`Estimated tax on this pay alone is ≈${suggestion}%${Number(pay.fedPct) !== suggestion ? html` · <button type="button" class="linkish" onClick=${() => setPay('fedPct', suggestion)}>use ${suggestion}%</button>` : ''}. Bonuses and vests usually withhold 22%.` : 'From your pay stub'}><${Num} value=${pay.fedPct} onInput=${v => setPay('fedPct', v)} /><//>
+      <${Field} label="State withholding (%)" hint=${`Your state rate in Settings is ${tax.state ?? 0}%`}><${Num} value=${pay.statePct} onInput=${v => setPay('statePct', v)} /><//>
+      <${Field} label=${`Paid so far in ${asOfYear} ($, gross)`} hint="Before the plan's as-of date — so this year's caps and tax estimate start in the right place. Check-ins keep it current."><${Num} value=${pay.ytdGross} onInput=${v => setPay('ytdGross', v)} /><//>
+    </div>
+    <label class="check"><input type="checkbox" checked=${pay.fica !== false} onChange=${e => setPay('fica', e.target.checked)} /> Withhold Social Security (6.2% up to the wage base) & Medicare (1.45%, +0.9% over $200k)</label>
+    ${unit ? html`<p class="small muted" style="margin:0">Taxes are covered by withholding shares at the vest-day price (sell-to-cover).</p>` : html`<div>
+      <div class="section-label">Payroll deductions</div>
+      <div class="stack" style="gap:8px">
+        ${deds.map((x, i) => html`<div class="ded" key=${x.id}>
+          <div class="ded-head">
+            <input type="text" value=${x.name} aria-label="Deduction name" onInput=${e => setDed(i, { name: e.target.value })} />
+            <button type="button" class="btn sm icon ghost" aria-label="Remove deduction" onClick=${() => setPay('deductions', deds.filter((_, j) => j !== i).map(o => (o.limitWith === x.id ? { ...o, limitWith: undefined } : o)))}>×</button>
+          </div>
+          <div class="form-grid">
+            <${Field} label="Amount">
+              <div class="row" style="gap:6px;flex-wrap:nowrap">
+                <div class="seg sm">${[['pct', '%'], ['amount', '$']].map(([k, l]) => html`<button type="button" class=${(k === 'pct') === (x.pct != null) ? 'on' : ''} onClick=${() => setDed(i, k === 'pct' ? { pct: x.pct ?? 5, amount: undefined } : { amount: x.amount ?? 100, pct: undefined })}>${l}</button>`)}</div>
+                <${Num} value=${x.pct != null ? x.pct : x.amount} onInput=${v => setDed(i, x.pct != null ? { pct: v ?? '' } : { amount: v })} />
+              </div>
+            <//>
+            <${Field} label="Goes to"><${Select} value=${x.to} empty="Nowhere (a cost, like insurance)" onChange=${v => setDed(i, { to: v })} options=${accountOptions(plan, a => a.kind !== 'property')} /><//>
+            <${Field} label="Annual limit ($)" hint="Stops for the rest of the year once reached"><${Num} value=${x.annualLimit} placeholder="No limit" onInput=${v => setDed(i, { annualLimit: v })} /><//>
+            ${deds.length > 1 ? html`<${Field} label="Shares its limit with" hint="e.g. pre-tax and Roth 401(k) share one limit"><${Select} value=${x.limitWith} empty="Nothing (own limit)" onChange=${v => setDed(i, { limitWith: v })} options=${deds.filter(o => o.id !== x.id && !o.limitWith).map(o => ({ value: o.id, label: o.name }))} /><//>` : null}
+            ${x.to ? html`<${Field} label="Employer adds (% of pay)" hint="Match or contribution, while you contribute"><${Num} value=${x.employerPct} onInput=${v => setDed(i, { employerPct: v })} /><//>` : null}
+          </div>
+          <label class="check small"><input type="checkbox" checked=${!!x.pretax} onChange=${e => setDed(i, { pretax: e.target.checked })} /> Pre-tax (lowers taxable pay)</label>
+          ${x.pretax ? html`<label class="check small"><input type="checkbox" checked=${!!x.ficaExempt} onChange=${e => setDed(i, { ficaExempt: e.target.checked })} /> Also exempt from Social Security & Medicare (HSA, health premiums — not 401(k))</label>` : null}
+        </div>`)}
+        <div><select value="" aria-label="Add a deduction" onChange=${e => { const pr = DEDUCTION_PRESETS.find(p => p.key === e.target.value); e.target.value = ''; if (pr) setPay('deductions', [...deds, { id: newId('ded'), ...pr.make(plan, deds) }]); }}>
+          <option value="">+ Add a deduction…</option>
+          ${DEDUCTION_PRESETS.map(p => html`<option value=${p.key}>${p.label}</option>`)}
+        </select></div>
+      </div>
+    </div>`}
+    <${PayPreview} plan=${plan} d=${d} unit=${unit} />
+  </div>`;
+}
+
+const shortDate = dt => dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+function PayPreview({ plan, d, unit }) {
+  const year = parseYMD(plan.asOf).getUTCFullYear() + 1;
+  const pv = useMemo(() => payPreview(plan, d, year), [plan, d, year]);
+  if (!pv || !pv.rows.length) return html`<p class="small muted">No paychecks in ${year}.</p>`;
+  const rows = pv.rows;
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  const total = k => rows.reduce((s, r) => s + r[k], 0);
+  const dedNames = first.deductions.map(x => x.name);
+  const dedTotal = (r, j) => r.deductions[j]?.amount || 0;
+  const employerTotal = total('employerAdds');
+  const showLast = rows.length > 1;
+  const notes = [];
+  const ssStop = rows.findIndex(r => r.ss === 0 && r.gross > 0);
+  if (pay(d).fica !== false && ssStop > 0) notes.push(`No Social Security from the ${shortDate(rows[ssStop].date)} ${unit ? 'vest' : 'paycheck'} on — ${pv.peers.length ? 'this employer’s' : 'your'} wages for the year pass ${money(ssWageBase(year, plan.settings.inflation))}. It restarts in January.`);
+  const medStart = rows.findIndex(r => r.addlMedicare > 0);
+  if (medStart >= 0) notes.push(`Extra 0.9% Medicare from ${shortDate(rows[medStart].date)} (wages over $200k).`);
+  first.deductions.forEach((x, j) => {
+    const k = rows.findIndex(r => r.deductions[j]?.capped);
+    if (k >= 0) notes.push(`${x.name} reaches its annual limit on ${shortDate(rows[k].date)}${x.employer ? '; the employer contribution stops too' : ''}.`);
+  });
+  const line = (label, f, cls2) => html`<tr class=${cls2 || ''}><td>${label}</td><td>${money(f(first))}</td>${showLast ? html`<td>${money(f(last))}</td>` : null}<td>${money(rows.reduce((s, r) => s + f(r), 0))}</td></tr>`;
+  return html`<div class="paystub">
+    <div class="small muted" style="margin-bottom:6px">${unit ? 'Vests' : 'Paychecks'} in ${year}: ${rows.length}${unit ? ` · at today's ${unit.symbol} price of ${money(unit.price, true)}` : ''}${pv.peers.length ? ` · shares the wage base with ${pv.peers.join(', ')}` : ''}</div>
+    <div class="scroll-x"><table class="tbl compact">
+      <thead><tr><th></th><th>First<div class="faint">${shortDate(first.date)}</div></th>${showLast ? html`<th>Last<div class="faint">${shortDate(last.date)}</div></th>` : null}<th>Year<div class="faint">${year}</div></th></tr></thead>
+      <tbody>
+        ${line('Gross', r => r.gross)}
+        ${line('Social Security', r => -r.ss)}
+        ${line('Medicare', r => -(r.medicare + r.addlMedicare))}
+        ${line('Federal withholding', r => -r.fed)}
+        ${line('State withholding', r => -r.state)}
+        ${dedNames.map((n, j) => line(n, r => -dedTotal(r, j)))}
+        ${line(unit ? 'Value kept (shares)' : 'Take-home', r => r.net, 'total')}
+        ${employerTotal > 0 ? line('Employer adds', r => r.employerAdds, 'muted') : null}
+      </tbody>
+    </table></div>
+    ${notes.length ? html`<ul class="small paynotes">${notes.map(n => html`<li>${n}</li>`)}</ul>` : null}
+    <p class="small faint" style="margin:6px 0 0">Withholding is trued up each April against an estimate of the year's tax — see “Paychecks & taxes” on the Overview.</p>
+  </div>`;
+}
+const pay = d => d.pay || {};
 
 export function GroupSelect({ plan, value, onChange }) {
   return html`<select value=${value || ''} onChange=${e => {

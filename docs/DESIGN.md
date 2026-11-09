@@ -189,8 +189,38 @@ the 59½ / 65 penalty ages), primary-residence exclusion. Used for:
 * the **after-tax net worth** lens, which makes "$100k in a 401k" and "$100k in cash" honestly
   comparable.
 
-Deliberately out of scope for now: brackets, AMT, RMDs, depreciation recapture, wash sales,
-state-specific rules. The goal is directional accuracy for decisions, not tax filing.
+### Paychecks and the April true-up
+
+An income flow can be marked **a paycheck** (`flow.pay`). Its amount is then *gross* pay, and
+each occurrence withholds, in order:
+
+* **payroll deductions** — % of gross or $ per paycheck, optionally into an account (401(k),
+  Roth 401(k), HSA) or nowhere (insurance), optionally pre-tax (and, for cafeteria-plan items like
+  HSA and health premiums, also exempt from Social Security/Medicare), with an annual limit after which
+  the deduction stops for the rest of the year, and an optional employer contribution (% of pay,
+  while you contribute);
+* **Social Security** 6.2% until the calendar year's wages from that employer reach the wage
+  base ($184,500 in 2026), **Medicare** 1.45% always, plus 0.9% on wages above $200k;
+* **federal and state withholding** as a % of taxable pay (gross − pre-tax deductions).
+
+Counters reset every January 1st and are shared by every paycheck with the same `employer` name
+(salary, bonus and stock vests), which is what makes take-home pay step up late in the year.
+A stock vest marked as a paycheck withholds its taxes in shares. `pay.ytdGross` (wages paid
+earlier in the as-of year) seeds the counters, assuming the same withholding; check-ins roll it
+forward.
+
+Each calendar year's wages are then taxed with the federal brackets and standard deduction for
+the filing status (`settings.tax.filing`, MFJ or single), the 0.9% Additional Medicare tax over
+the filing threshold, and the flat state rate. Estimated tax − withholding is settled on April 15
+of the next year: a payment from, or a refund into, primary cash. The as-of year is skipped when
+it started after January and no earlier wages were entered, and the last year is shown as
+partial when the horizon ends mid-year (neither can be estimated). Dollar
+thresholds are 2026 figures indexed by `settings.inflation`.
+
+Deliberately out of scope for now: credits, itemizing, AMT, NIIT, RMDs, depreciation recapture,
+wash sales, state brackets. Non-wage income (rent, withdrawals, gains) keeps the flat rates
+above rather than joining the bracket calculation. The goal is directional accuracy for
+decisions, not tax filing.
 
 ## 7. Persistence and sync
 
@@ -266,7 +296,7 @@ the shortfall signal and is tracked in metrics; no other account ever goes below
 underwater, the rest of the debt is paid from primary cash. Taxable gain = price − selling
 costs − cost basis − exclusion; paying off a mortgage never changes the gain.
 
-**Equity.** Grants can withhold a % of shares for income tax (sell-to-cover); vested shares get
+**Equity.** Grants can be paychecks (§6) or withhold a flat % of shares (sell-to-cover); vested shares get
 the vest-date price as cost basis (average-cost). Liquidations are specified in shares, gross
 dollars, or % of holding, are capped at the shares held, and pay capital-gains tax (rate
 overridable per event, e.g. short-term). Lot-level tracking is on the roadmap.

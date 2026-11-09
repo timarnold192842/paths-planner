@@ -7,6 +7,7 @@ import { demoPlan } from '../demo.js';
 import { todayYMD } from '../engine/dates.js';
 import { Field, Num, Text, DateIn, Select, Waterfall, accountOptions } from './editors.js';
 import { toast } from './toast.js';
+import { FILING } from '../engine/payroll.js';
 import { navigate } from './nav.js';
 
 export function Settings() {
@@ -69,7 +70,8 @@ export function Settings() {
     <div class="card">
       <div class="card-head"><h3>Taxes (back of the envelope)</h3><label class="check"><input type="checkbox" checked=${s.tax.enabled} onChange=${e => set('settings.tax.enabled', e.target.checked)} /> Estimate taxes</label></div>
       <div class="card-pad form-grid">
-        <${Field} label="Ordinary income rate (%)" hint="Federal marginal rate"><${Num} value=${s.tax.ordinary} onInput=${v => set('settings.tax.ordinary', v ?? 0)} /><//>
+        <${Field} label="Filing status" hint="Paychecks are taxed with the 2026 federal brackets and standard deduction"><${Select} value=${s.tax.filing || 'mfj'} onChange=${v => set('settings.tax.filing', v || 'mfj')} options=${FILING.map(f => ({ value: f.id, label: f.label }))} /><//>
+        <${Field} label="Ordinary income rate (%)" hint="Federal marginal rate for withdrawals and other taxed income (the Overview's “Paychecks & taxes” shows your bracket)"><${Num} value=${s.tax.ordinary} onInput=${v => set('settings.tax.ordinary', v ?? 0)} /><//>
         <${Field} label="Long-term capital gains (%)"><${Num} value=${s.tax.ltcg} onInput=${v => set('settings.tax.ltcg', v ?? 0)} /><//>
         <${Field} label="State income tax (%)" hint="Added to both rates"><${Num} value=${s.tax.state} onInput=${v => set('settings.tax.state', v ?? 0)} /><//>
         <${Field} label="Your birth date" hint="Early-withdrawal penalties before 59½ (65 for HSA)"><${DateIn} value=${s.tax.birthDate} onInput=${v => set('settings.tax.birthDate', v || '')} /><//>
@@ -83,8 +85,11 @@ export function Settings() {
             <li><b>Brokerage & company stock</b>: capital-gains rate on the gain over average cost basis.</li>
             <li><b>529</b>: tax-free for expenses marked "qualified: education"; otherwise ordinary + 10% on earnings. <b>HSA</b>: tax-free for "qualified: medical"; otherwise ordinary + 20% before 65. <b>Roth</b>: tax-free.</li>
             <li><b>Property sales</b>: capital-gains tax on price − selling costs − cost basis (− exclusion for your primary home).</li>
-            <li><b>RSU vests</b>: withhold a % of shares (sell-to-cover); vested shares get the vest-day price as cost basis. Income can be marked as taxed at your ordinary rate (e.g. rent).</li>
-            <li><b>After-tax net worth</b> = what you'd keep if everything were sold that day. Not modeled: brackets, RMDs, depreciation recapture, AMT.</li>
+            <li><b>Paychecks</b> (income marked “This is a paycheck”): gross pay minus Social Security (6.2% until the year's wages from that employer reach the wage base — $184,500 in 2026), Medicare (1.45%, plus 0.9% over $200k), your federal and state withholding %, and payroll deductions (401(k), HSA, insurance…; capped ones stop at their annual limit). These reset every January, so take-home pay steps up late in the year.</li>
+            <li><b>April true-up</b>: each year's wages are taxed with the federal brackets and standard deduction for your filing status, plus your state rate, and compared with what was withheld. The difference is a refund into, or a payment out of, primary cash on April 15.</li>
+            <li><b>Stock vests</b> marked as paychecks have their taxes withheld in shares (sell-to-cover); vested shares get the vest-day price as cost basis. Other income can be marked as taxed at your ordinary rate (e.g. rent).</li>
+            <li>Dollar thresholds are 2026 figures, indexed with inflation in later years.</li>
+            <li><b>After-tax net worth</b> = what you'd keep if everything were sold that day. Not modeled: credits, itemized deductions, RMDs, depreciation recapture, AMT, NIIT.</li>
           </ul>
         </details>
       </div>

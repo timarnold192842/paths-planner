@@ -30,8 +30,10 @@ while tracking actual vs. expected.
 
 Also: funding waterfalls ("pay college from the 529 first, then cash"), account tax treatments
 (401k, Roth, HSA, 529, brokerage, company stock, property) with back-of-the-envelope taxes and an
-after-tax net-worth lens, dated amount changes, flows that stop when an asset is sold, and an
-importer for the old Forecast app.
+after-tax net-worth lens, paychecks with payroll taxes, withholding and deductions (Social
+Security stops at the wage base, a 401(k) at its limit) trued up against the federal brackets
+each April, dated amount changes, flows that stop when an asset is sold, and an importer for the
+old Forecast app.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the model and engine rules.
 

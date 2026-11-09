@@ -77,6 +77,10 @@ function applyPatches(out, patches, source, owners, diagnostics) {
       diagnostics.push({ level: 'warn', code: 'stale-patch', message: `${label} changes an item that doesn't exist (or is switched off here) — ignored.`, ref: p.id });
       continue;
     }
+    if (String(p.field).startsWith('pay.') && !target.pay) {
+      diagnostics.push({ level: 'warn', code: 'not-paycheck', message: `"${source}" changes ${p.field} on "${target.name}", which isn't a paycheck; ignored.`, ref: p.id });
+      continue;
+    }
     const key = `${p.id}::${p.field}`;
     if (owners.has(key) && owners.get(key).source !== source && owners.get(key).kind === 'choice') {
       diagnostics.push({

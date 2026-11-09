@@ -13,6 +13,9 @@
 import { parseYMD, toYMD, addDays, addMonths, addYears, yearsBetween, DAYS_PER_YEAR } from './dates.js';
 import { occurrences } from './schedule.js';
 import { pricePath } from './prices.js';
+import { amountAt, paycheck, newYtd, wageIncomeTax, indexFactor, PAYROLL } from './payroll.js';
+
+export { amountAt };
 
 const EPS = 1e-6;
 const BASIS_KINDS = new Set(['brokerage', 'equity', 'education', 'hsa', 'roth', 'property']);
@@ -138,6 +141,57 @@ export function simulate(plan, opts = {}) {
   const log = (i, kind, entry) => { if (keepLedger) ledger.push({ date: toYMD(dates[i]), kind, ...entry }); };
   const addTax = x => { if (x > 0) { totals.taxes += x; attr('taxes', 'taxes', 'Taxes & penalties', -x); } };
   const addCost = (x, label = 'Selling, closing & loan fees') => { if (x > 0) { totals.costs += x; attr('costs', 'costs', label, -x); } };
+
+  // ---- paychecks & the annual tax true-up ----
+  // Payroll counters (Social Security wage base, capped deductions) run per employer per calendar
+  // year. Each year's wage withholding is compared with an estimated tax bill and settled on
+  // April 15 of the next year: a refund into primary cash or a payment out of it.
+  const inflation = Number(s.inflation) || 0;
+  const filing = tax.filing === 'single' ? 'single' : 'mfj';
+  const asOfYear = start.getUTCFullYear();
+  const ytdCounters = new Map();
+  const taxYears = new Map();
+  const ytdFor = (f, year) => {
+    const k = `${(f.pay.employer || '').trim().toLowerCase()}|${year}`;
+    if (!ytdCounters.has(k)) ytdCounters.set(k, newYtd());
+    return ytdCounters.get(k);
+  };
+  const taxYear = year => {
+    if (!taxYears.has(year)) taxYears.set(year, { year, wages: 0, ficaWages: 0, pretax: 0, fica: 0, fedWithheld: 0, stateWithheld: 0, addlMedWithheld: 0, includesEarlier: false, settledOn: null });
+    return taxYears.get(year);
+  };
+  const addPay = (year, r) => {
+    const t = taxYear(year);
+    t.wages += r.gross; t.ficaWages += r.ficaWages; t.pretax += r.pretax; t.fica += r.ss + r.medicare;
+    t.addlMedWithheld += r.addlMedicare; t.fedWithheld += r.fed; t.stateWithheld += r.state;
+  };
+  const payOpts = (f, year, extra) => ({ year, inflation, taxOn, isUnit: !!f.unitId, limitIndex: indexFactor(year, inflation, asOfYear), key: f.id, ...extra });
+  // Wages paid earlier this year (before the as-of date) count toward this year's caps and tax
+  // bill; they're assumed to have had the same withholding and deductions.
+  for (const f of plan.flows) {
+    const earlier = Number(f.pay?.ytdGross) || 0;
+    if (!f.pay || !f.to || (f.from || []).length || earlier <= 0) continue;
+    const typical = amountAt(f, start) * priceOf(f.unitId, 0);
+    addPay(asOfYear, paycheck(f.pay, earlier, ytdFor(f, asOfYear), payOpts(f, asOfYear, { count: typical > 0 ? earlier / typical : 1 })));
+    taxYear(asOfYear).includesEarlier = true;
+  }
+  // The as-of year is only partly simulated; without the earlier wages its tax can't be estimated.
+  // Likewise the last year when the horizon ends before December 31st.
+  const partialYear = t => (t.year === asOfYear && !t.includesEarlier && start.getUTCMonth() > 0) || new Date(Date.UTC(t.year, 11, 31)) > end;
+  function trueUp(t) {
+    const taxable = Math.max(0, t.wages - t.pretax);
+    const fed = taxOn ? wageIncomeTax(taxable, filing, t.year, inflation) : { tax: 0, marginal: 0 };
+    const addlMedicare = taxOn ? PAYROLL.addlMedicareRate * Math.max(0, t.ficaWages - PAYROLL.addlMedicareThreshold[filing]) : 0;
+    const state = taxable * rate(tax.state);
+    const withheld = t.fedWithheld + t.stateWithheld + t.addlMedWithheld;
+    return { ...t, taxable, federal: fed.tax, marginal: fed.marginal, addlMedicare, state, withheld, due: fed.tax + addlMedicare + state - withheld, partial: partialYear(t) };
+  }
+  const settleDays = new Map();
+  for (let y = asOfYear; ; y++) {
+    const d = new Date(Date.UTC(y + 1, 3, 15));
+    if (d > end) break;
+    if (d > start) settleDays.set(idx(d), y);
+  }
 
   // ---- money primitives ----
   function deposit(id, usd, i, basisUsd = usd) {
@@ -388,6 +442,9 @@ export function simulate(plan, opts = {}) {
       }
     }
 
+    // last year's wage taxes are settled on April 15
+    if (settleDays.has(i)) settleTaxYear(settleDays.get(i), i);
+
     // 2. income & unit grants
     for (const { f, amount, ownerAsset } of byDay.income.get(i) || []) {
       if (ownerAsset && !owned(ownerAsset, i)) continue;
@@ -396,6 +453,7 @@ export function simulate(plan, opts = {}) {
       if (dst && !owned(dst, i) && !dst.isPrimary) continue;
       const price = priceOf(f.unitId, i);
       const gross = amount * price;
+      if (f.pay && dst) { runPaycheck(f, gross, price, dst, i); continue; }
       let units = amount;
       let withheld = 0;
       if (f.withholdPct) { withheld = units * Math.min(100, Number(f.withholdPct)) / 100; units -= withheld; }
@@ -480,6 +538,46 @@ export function simulate(plan, opts = {}) {
     if (Math.abs(residual) > 0.005) attr('other', 'other', 'Other (sale price vs. model, loans without proceeds)', residual);
     const y = yearOf(i);
     for (const [k, v] of today) buckets.get(k).values[y] += v;
+  }
+
+  function runPaycheck(f, gross, price, dst, i) {
+    const year = dates[i].getUTCFullYear();
+    const r = paycheck(f.pay, gross, ytdFor(f, year), payOpts(f, year));
+    addPay(year, r);
+    const [k, label] = flowKey(f);
+    let employerIn = 0;
+    const parts = [];
+    for (const d of r.deductions) {
+      if (d.amount > EPS) parts.push(`${d.name} ${fmt(d.amount)}`);
+      if (d.to && acc.has(d.to) && deposit(d.to, d.amount + d.employer, i)) { employerIn += d.employer; continue; }
+      attr('spending', `pay:${f.id}:${d.id}`, d.name, -d.amount);
+    }
+    attr('income', k, label, gross + employerIn);
+    addTax(r.withheld);
+    if (f.unitId && dst.def.unitId === f.unitId) {
+      dst.qty += r.net / price; // shares withheld to cover taxes (sell-to-cover)
+      if (BASIS_KINDS.has(dst.def.kind)) dst.basis += r.net;
+    } else deposit(f.to, r.net, i, r.net);
+    const taxes = [r.ss ? `SS ${fmt(r.ss)}` : '', `Medicare ${fmt(r.medicare + r.addlMedicare)}`, `withholding ${fmt(r.fed + r.state)}`].filter(Boolean).join(' · ');
+    log(i, 'income', { item: f.id, name: f.name, amount: r.net, to: f.to, tax: r.withheld, gross, note: [`Gross ${fmt(gross)}`, taxOn ? taxes : '', ...parts].filter(Boolean).join(' · ') });
+  }
+
+  function settleTaxYear(year, i) {
+    const t = taxYears.get(year);
+    if (!t || t.wages <= 0 || partialYear(t)) return;
+    const r = trueUp(t);
+    t.settledOn = toYMD(dates[i]);
+    const note = `Est. tax ${fmt(r.federal + r.state + r.addlMedicare)} vs withheld ${fmt(r.withheld)}`;
+    if (r.due > EPS) {
+      payFrom([], r.due, i);
+      addTax(r.due);
+      log(i, 'tax', { name: `${year} income tax due`, amount: r.due, note });
+    } else if (r.due < -EPS) {
+      deposit(primaryId, -r.due, i, 0);
+      totals.taxes += r.due;
+      attr('taxes', 'taxes', 'Taxes & penalties', -r.due);
+      log(i, 'refund', { name: `${year} tax refund`, amount: -r.due, to: primaryId, note });
+    }
   }
 
   // A new loan: balance (+ any fee) appears; the money goes to an account or pays down another debt.
@@ -604,6 +702,7 @@ export function simulate(plan, opts = {}) {
     ledger,
     totals,
     attribution: { years: Y, buckets: [...buckets.values()] },
+    taxYears: [...taxYears.values()].filter(t => t.wages > 0).sort((a, b) => a.year - b.year).map(trueUp),
     units: Object.fromEntries([...prices].map(([id, arr]) => [id, arr]))
   };
 }
@@ -620,20 +719,6 @@ export function attributionUpTo(run, years) {
     out.set(b.key, { ...b, total: v });
   }
   return out;
-}
-
-// Amount of a flow on a date: dated steps first, then annual escalation from the active step.
-export function amountAt(f, d) {
-  let base = Number(f.amount) || 0;
-  let since = parseYMD(f.schedule?.start) || d;
-  for (const st of [...(f.steps || [])].sort((a, b) => (a.date < b.date ? -1 : 1))) {
-    const sd = parseYMD(st.date);
-    if (sd && sd <= d) { base = Number(st.amount) || 0; since = sd; }
-  }
-  const g = (Number(f.growth) || 0) / 100;
-  if (!g) return base;
-  const months = (d.getUTCFullYear() - since.getUTCFullYear()) * 12 + (d.getUTCMonth() - since.getUTCMonth());
-  return base * (1 + g) ** Math.max(0, months / 12);
 }
 
 function sum(list, key) {

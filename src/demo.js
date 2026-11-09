@@ -9,6 +9,12 @@ export function demoPlan() {
   const dayBefore = ymd => toYMD(new Date(parseYMD(ymd).getTime() - 86400000));
   const firstOf = n => { const d = addMonths(t0, n); return toYMD(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))); };
 
+  // Pay already received this calendar year (so payroll caps and the tax estimate start right).
+  const mo = t0.getUTCMonth();
+  const paychecksSoFar = mo * 2 + (t0.getUTCDate() >= 15 ? 1 : 0);
+  const bonusPaid = mo > 2 || (mo === 2 && t0.getUTCDate() >= 15);
+  const vestsSoFar = Math.floor(mo / 3);
+
   const settings = defaultSettings();
   settings.primaryCashId = 'checking';
   settings.cashFloor = 20000;
@@ -26,8 +32,7 @@ export function demoPlan() {
       { id: 'g-home', name: 'Home & living' },
       { id: 'g-condo', name: 'Rental condo' },
       { id: 'g-kids', name: 'Kids & college' },
-      { id: 'g-equity', name: 'ACME equity' },
-      { id: 'g-saving', name: 'Saving' }
+      { id: 'g-equity', name: 'ACME equity' }
     ],
     units: [{
       id: 'acme', name: 'ACME', symbol: 'ACME', price: 12, growth: 6, assumptionId: 'a-acme',
@@ -58,8 +63,14 @@ export function demoPlan() {
       { id: 'heloc', name: 'Home equity line', balance: 45000, start: m(3), proceedsTo: 'checking', creditLimit: 120000, rate: 8.25, paymentRule: 'interestOnly', paymentDay: 1, payoffDate: m(39), securedBy: 'home', payFrom: [], when: { 'd-remodel': ['heloc'] } }
     ],
     flows: [
-      { id: 'salary', name: 'Salary (net)', group: 'g-income', amount: 6900, growth: 3, schedule: { freq: 'semimonthly', start: firstOf(0), days: [15, 'last'] }, from: [], to: 'checking', steps: [] },
-      { id: 'bonus', name: 'Annual bonus (net)', group: 'g-income', amount: 9000, growth: 3, schedule: { freq: 'annual', start: firstOf(0), month: 3, dayOfMonth: 15 }, from: [], to: 'checking', steps: [] },
+      { id: 'salary', name: 'Salary', group: 'g-income', amount: 9600, growth: 3, schedule: { freq: 'semimonthly', start: firstOf(0), days: [15, 'last'] }, from: [], to: 'checking', steps: [],
+        pay: { employer: 'ACME', fica: true, fedPct: 14, statePct: 3.07, ytdGross: 9600 * paychecksSoFar, deductions: [
+          { id: 'ded-401k', name: '401(k)', pct: 10, to: '401k', pretax: true, annualLimit: 24500, employerPct: 4 },
+          { id: 'ded-hsa', name: 'HSA', amount: 180, to: 'hsa', pretax: true, ficaExempt: true, annualLimit: 8750 },
+          { id: 'ded-health', name: 'Health insurance', amount: 260, pretax: true, ficaExempt: true }
+        ] } },
+      { id: 'bonus', name: 'Annual bonus', group: 'g-income', amount: 13000, growth: 3, schedule: { freq: 'annual', start: firstOf(0), month: 3, dayOfMonth: 15 }, from: [], to: 'checking', steps: [],
+        pay: { employer: 'ACME', fica: true, fedPct: 22, statePct: 3.07, ytdGross: bonusPaid ? 13000 : 0, deductions: [] } },
       { id: 'spending', name: 'Household spending', group: 'g-home', amount: 4700, growth: 2.5, schedule: { freq: 'monthly', start: firstOf(1), dayOfMonth: 2 }, from: [], to: null, steps: [] },
       { id: 'daycare', name: 'Daycare', group: 'g-kids', amount: 1450, growth: 3, schedule: { freq: 'monthly', start: firstOf(1), end: m(30), dayOfMonth: 1 }, from: [], to: null, steps: [{ date: m(18), amount: 900 }] },
       { id: 'home-tax', name: 'Home property tax', group: 'g-home', amount: 8400, growth: 3, schedule: { freq: 'annual', start: firstOf(0), month: 4, dayOfMonth: 30 }, from: [], to: null, whileOwned: 'home', steps: [] },
@@ -68,8 +79,7 @@ export function demoPlan() {
       { id: 'condo-hoa', name: 'Condo HOA', group: 'g-condo', amount: 430, growth: 4, schedule: { freq: 'monthly', start: firstOf(1), dayOfMonth: 10 }, from: [], to: null, whileOwned: 'condo', steps: [] },
       { id: 'condo-tax', name: 'Condo property tax', group: 'g-condo', amount: 3900, growth: 3, schedule: { freq: 'annual', start: firstOf(0), month: 9, dayOfMonth: 30 }, from: [], to: null, whileOwned: 'condo', steps: [] },
       { id: 'condo-repairs', name: 'Condo repairs & turnover', group: 'g-condo', amount: 1100, growth: 3, schedule: { freq: 'quarterly', start: firstOf(1) }, from: [], to: null, whileOwned: 'condo', steps: [] },
-      { id: 'acme-vest', name: 'ACME RSU vest', group: 'g-equity', amount: 420, unitId: 'acme', withholdPct: 35, schedule: { freq: 'quarterly', start: firstOf(1), end: m(48), dayOfMonth: 20 }, from: [], to: 'acme-shares', steps: [] },
-      { id: '401k-contrib', name: '401(k) contribution', group: 'g-saving', amount: 900, growth: 2, schedule: { freq: 'semimonthly', start: firstOf(0), days: [15, 'last'] }, from: ['checking'], to: '401k', steps: [] },
+      { id: 'acme-vest', name: 'ACME RSU vest', group: 'g-equity', amount: 420, unitId: 'acme', pay: { employer: 'ACME', fica: true, fedPct: 22, statePct: 3.07, ytdGross: 420 * 12 * vestsSoFar }, schedule: { freq: 'quarterly', start: firstOf(1), end: m(48), dayOfMonth: 20 }, from: [], to: 'acme-shares', steps: [] },
       { id: '529-contrib', name: '529 contribution', group: 'g-kids', amount: 300, schedule: { freq: 'monthly', start: firstOf(1), end: m(110), dayOfMonth: 5 }, from: ['checking'], to: 'maya-529', steps: [] },
       { id: 'remodel', name: 'Kitchen remodel', group: 'g-home', amount: 45000, schedule: { freq: 'once', start: m(3) }, from: [], to: null, steps: [] },
       { id: 'college', name: "Maya's college", group: 'g-kids', amount: 34000, growth: 4, qualified: 'education', schedule: { freq: 'annual', start: m(116), end: m(160), month: 8, dayOfMonth: 15 }, from: ['maya-529'], to: null, steps: [] }

@@ -74,6 +74,7 @@ export function Plan({ tab = 'flows' }) {
               <div class="title"><span class="name">${f.name}</span>
                 ${f.when ? html`<span class="badge blue" title=${whenLabel(plan, f.when, true)}>Only if: ${whenLabel(plan, f.when)}</span>` : null}
                 ${f.whileOwned ? html`<span class="badge">While own ${name(f.whileOwned)}</span>` : null}
+                ${f.pay && dir === 'income' ? html`<span class="badge" title="Gross pay; taxes and deductions are withheld">Paycheck</span>` : null}
                 ${(f.steps || []).length ? html`<span class="badge">Changes ×${f.steps.length}</span>` : null}
                 ${f.enabled === false ? html`<span class="badge">Off</span>` : null}
               </div>
