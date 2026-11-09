@@ -2,7 +2,7 @@ import { useMemo, useState } from 'preact/hooks';
 import { html, money, compact, signed, tone, cls, pct } from './h.js';
 import { store, useUI } from '../store.js';
 import { getRun, getStress, scenarioName, scenarioColor } from './runs.js';
-import { Chart, rangeFor } from './chart.js';
+import { Chart, rangeFor, durationLabel } from './chart.js';
 import { compareRuns, verdictText, lensSeries, LENSES } from '../engine/metrics.js';
 import { scenarioDiff } from '../engine/compile.js';
 import { newId } from '../engine/model.js';
@@ -125,10 +125,10 @@ export function Compare() {
     </div>` : html`<div class="notice info">Select a second scenario to see the comparison.</div>`}
 
     ${others.length ? html`<div class="card">
-      <div class="card-head"><h3>What drives the difference</h3><span class="small muted">Nominal dollars · first ${Math.min(years, plan.horizonYears)} years (change with the range buttons)</span></div>
+      <div class="card-head"><h3>What drives the difference</h3><span class="small muted">Nominal dollars · first ${durationLabel(Math.min(years, plan.horizonYears), plan.asOf)} (change with the range buttons)</span></div>
       ${others.map(o => html`<div style="border-bottom:1px solid var(--border)">
         <div class="row" style="padding:12px 18px 0"><span class="dot" style=${`background:${scenarioColor(plan, o.scenarioId)}`}></span><b>${scenarioName(plan, o.scenarioId)}</b></div>
-        <${DriversView} refRun=${ref.run} run=${o.run} years=${Math.min(years, plan.horizonYears)} refName=${scenarioName(plan, refId)} name=${scenarioName(plan, o.scenarioId)} />
+        <${DriversView} refRun=${ref.run} run=${o.run} years=${Math.min(years, plan.horizonYears)} start=${plan.asOf} refName=${scenarioName(plan, refId)} name=${scenarioName(plan, o.scenarioId)} />
       </div>`)}
     </div>` : null}
 
@@ -138,7 +138,7 @@ export function Compare() {
           <div class="seg">${[['difference', 'Difference'], ['overlay', 'Side by side']].map(([k, l]) => html`<button type="button" class=${mode === k ? 'on' : ''} onClick=${() => setMode(k)}>${l}</button>`)}</div>
           <${LensPicker} value=${lens} onChange=${setLens} />
         </div>
-        <${RangePicker} value=${years} onChange=${setYears} />
+        <${RangePicker} value=${years} onChange=${setYears} start=${plan.asOf} maxDays=${ref.run.N - 1} />
       </div>
       <p class="small muted" style="margin:6px 16px 0">${mode === 'difference' ? `How far each alternative is ahead of (above zero) or behind (below zero) ${scenarioName(plan, refId)}.` : 'Each scenario on the same scale.'}</p>
       <${Chart} series=${mainSeries} dates=${ref.run.dates} range=${rangeFor(ref.run, years)} height=${300} refLines=${mode === 'difference' ? [{ value: 0, label: scenarioName(plan, refId), color: '#94a3b8' }] : []} syncKey="cmp" />

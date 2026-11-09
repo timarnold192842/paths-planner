@@ -2,11 +2,12 @@ import { useMemo } from 'preact/hooks';
 import { html, money, compact, signed, tone, cls } from './h.js';
 import { store, useUI } from '../store.js';
 import { getRun, scenarioName } from './runs.js';
-import { Chart, rangeFor } from './chart.js';
+import { Chart, rangeFor, nudgeWindow, windowDays, durationLabel } from './chart.js';
 import { LENSES, lensSeries } from '../engine/metrics.js';
 import { formatDate, formatMonthYear, parseYMD, addDays, toYMD, todayYMD } from '../engine/dates.js';
 import { Breakdown, yearly } from './breakdown.js';
 import { WhatIf } from './whatif.js';
+import { AddLine, LineChips, customSeries } from './lines.js';
 
 export const RANGES = [[2, '2Y'], [5, '5Y'], [10, '10Y'], [30, '30Y']];
 
@@ -28,14 +29,32 @@ export function LensPicker({ value, onChange }) {
     <select class="show-sm" value=${value} onChange=${e => onChange(e.target.value)} aria-label="Measure" style="width:auto">${LENSES.map(l => html`<option value=${l.id}>${LENS_SHORT[l.id]}</option>`)}</select>`;
 }
 
-export function RangePicker({ value, onChange }) {
-  return html`<div class="seg" aria-label="Time range">${RANGES.map(([y, l]) => html`<button type="button" class=${y === value ? 'on' : ''} onClick=${() => onChange(y)}>${l}</button>`)}</div>`;
+const NUDGES = [['y', '1y', 'year'], ['m', '1mo', 'month'], ['w', '1w', 'week'], ['d', '1d', 'day']];
+
+// Presets plus ± day / week / month / year nudges for the end of the chart window.
+export function RangePicker({ value, onChange, start, maxDays }) {
+  const nudge = (u, dir) => onChange(nudgeWindow(value, start, u, dir, maxDays));
+  const full = windowDays(value, start);
+  const days = Math.min(maxDays, full);
+  const shown = full > maxDays ? maxDays / 365.25 : value;
+  const btn = (u, l, name, dir) => html`<button type="button" title=${`End the chart 1 ${name} ${dir < 0 ? 'earlier' : 'later'}`} aria-label=${`${dir < 0 ? 'Minus' : 'Plus'} 1 ${name}`}
+    disabled=${dir < 0 ? days <= 1 : days >= maxDays} onClick=${() => nudge(u, dir)}>${dir < 0 ? '−' : '+'}${l}</button>`;
+  return html`<div class="range-picker">
+    <div class="seg" aria-label="Time range">${RANGES.map(([y, l]) => html`<button type="button" class=${y === value ? 'on' : ''} onClick=${() => onChange(y)}>${l}</button>`)}</div>
+    <div class="nudges" role="group" aria-label="Adjust the end of the chart">
+      ${NUDGES.map(([u, l, n]) => btn(u, l, n, -1))}
+      <span class="nudge-sep" aria-hidden="true"></span>
+      ${[...NUDGES].reverse().map(([u, l, n]) => btn(u, l, n, 1))}
+    </div>
+    <span class="range-label small muted" aria-live="polite">Through ${formatDate(toYMD(addDays(parseYMD(start), days)))} · ${durationLabel(shown, start)}</span>
+  </div>`;
 }
 
 export function Overview({ scenarioId }) {
   const plan = store.plan;
   const [lens, setLens] = useUI('lens', 'afterTaxReal');
   const [years, setYears] = useUI('overviewYears', 10);
+  const [lines, setLines] = useUI('chartLines', []);
   const r = getRun(plan, scenarioId);
   const { run, metrics: m, compiled } = r;
   const infl = plan.settings.inflation;
@@ -44,8 +63,9 @@ export function Overview({ scenarioId }) {
   const series = useMemo(() => [
     { label: lensLabel, values: lensSeries(run, lens, infl), color: cssColor('--primary', '#2563eb'), width: 2.5 },
     { label: 'Operating cash', values: run.series.cash, color: '#16a34a', width: 1.5, agg: 'min' },
-    { label: 'Debt', values: run.series.liabilities, color: '#c2410c', width: 1.25, dash: [4, 4] }
-  ], [run, lens, infl]);
+    { label: 'Debt', values: run.series.liabilities, color: '#c2410c', width: 1.25, dash: [4, 4] },
+    ...customSeries(run, plan, lines, lens)
+  ], [run, lens, infl, lines.join('|')]);
 
   const floor = plan.settings.cashFloor;
   const staleDays = Math.round((parseYMD(todayYMD()) - parseYMD(plan.asOf)) / 86400000);
@@ -88,9 +108,10 @@ export function Overview({ scenarioId }) {
     ${m.firstNegative ? html`<div class="notice" role="alert"><span>⚠</span><div>Cash goes negative on <b>${formatDate(m.firstNegative)}</b> and reaches ${money(m.minCash.value)} on ${formatDate(m.minCash.date)}. Add income, trim spending, or fund the gap from another account.</div></div>` : null}
     <div class="card">
       <div class="chart-toolbar">
-        <${LensPicker} value=${lens} onChange=${setLens} />
-        <${RangePicker} value=${years} onChange=${setYears} />
+        <div class="row lens-row"><${LensPicker} value=${lens} onChange=${setLens} /><${AddLine} plan=${plan} value=${lines} onChange=${setLines} /></div>
+        <${RangePicker} value=${years} onChange=${setYears} start=${plan.asOf} maxDays=${run.N - 1} />
       </div>
+      <${LineChips} plan=${plan} value=${lines} onChange=${setLines} />
       <${Chart} series=${series} dates=${run.dates} range=${rangeFor(run, years)} height=${320} refLines=${[{ value: floor, label: 'Cash floor', color: '#dc2626' }]} />
     </div>
     <${WhatIf} key=${scenarioId} scenarioId=${scenarioId} lens=${lens} years=${years} />
@@ -106,7 +127,7 @@ export function Overview({ scenarioId }) {
         </div>
       </div>
       <div class="card">
-        <div class="card-head"><h3>Where the change comes from</h3><span class="small muted">Next ${Math.min(years, plan.horizonYears)} years · nominal</span></div>
+        <div class="card-head"><h3>Where the change comes from</h3><span class="small muted">Next ${durationLabel(Math.min(years, plan.horizonYears), plan.asOf)} · nominal</span></div>
         <${Breakdown} run=${run} years=${Math.min(years, plan.horizonYears)} />
       </div>
     </div>

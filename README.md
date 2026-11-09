@@ -33,7 +33,10 @@ Also: funding waterfalls ("pay college from the 529 first, then cash"), account 
 after-tax net-worth lens, paychecks with payroll taxes, withholding and deductions (Social
 Security stops at the wage base, a 401(k) at its limit) trued up against the federal brackets
 each April, dated amount changes, flows that stop when an asset is sold, and an importer for the
-old Forecast app.
+old Forecast app. The Plan lists can be reordered by dragging (mouse, touch or ↑/↓ on the grip),
+cash flows can be dragged between groups, and groups fold. The Overview chart can show any
+account, loan, account-type total or plan total (“+ Add line…”), and its range can be nudged by
+±1 day, week, month or year.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the model and engine rules.
 

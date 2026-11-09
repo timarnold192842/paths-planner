@@ -305,3 +305,55 @@ details.more[open] > summary { margin-bottom: 10px; }
   .paystub .tbl.compact th, .paystub .tbl.compact td { padding: 5px 5px; font-size: 12.5px; }
   .paystub .tbl.compact th:first-child, .paystub .tbl.compact td:first-child { padding-left: 2px; }
 }
+
+/* chart range: presets + nudges */
+.range-picker { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; }
+.nudges { display: inline-flex; align-items: center; padding: 3px; gap: 2px; background: var(--surface-3); border-radius: 10px; }
+.nudges button { border: 0; background: transparent; padding: 5px 7px; border-radius: 7px; font-weight: 600; font-size: 12.5px; color: var(--muted); cursor: pointer; font-variant-numeric: tabular-nums; min-width: 34px; }
+.nudges button:hover:not(:disabled) { background: var(--surface); color: var(--text); }
+.nudges button:disabled { opacity: .35; cursor: default; }
+.nudge-sep { width: 1px; align-self: stretch; margin: 3px 3px; background: var(--border-strong); }
+.range-label { white-space: nowrap; }
+@media (max-width: 640px) {
+  .range-picker { width: 100%; }
+  .nudges { width: 100%; justify-content: space-between; }
+  .nudges button { flex: 1; min-width: 0; padding: 6px 2px; }
+}
+
+/* reorderable lists & collapsible groups */
+.list-item.sortable { grid-template-columns: 22px minmax(0, 1fr) auto; column-gap: 8px; padding-left: 8px; }
+.list-item.sortable .meta { grid-column: 2; }
+.list-item.sortable .amount { grid-column: 3; }
+.drag-handle { grid-column: 1; grid-row: 1 / span 2; align-self: center; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--faint); cursor: grab; touch-action: none; opacity: .55; }
+.list-item:hover .drag-handle, .drag-handle:focus-visible { opacity: 1; color: var(--muted); }
+.drag-handle:hover { background: var(--surface-3); }
+@media (hover: none) { .drag-handle { opacity: .8; } }
+body.is-sorting, body.is-sorting * { cursor: grabbing !important; user-select: none; }
+.list-item.dragging { opacity: .45; background: var(--primary-soft); }
+.list-item.drop-before { box-shadow: inset 0 3px 0 var(--primary); }
+.list-item.drop-after { box-shadow: inset 0 -3px 0 var(--primary); }
+.group-title.collapsible { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.group-title.collapsible:hover { color: var(--text); }
+.group-title.collapsible .num { margin-left: auto; }
+.group-title .chev { width: 12px; display: inline-block; text-align: center; }
+.group-title .count { font-weight: 600; letter-spacing: 0; }
+.group-title.drop-into { background: var(--primary-soft); color: var(--primary); box-shadow: inset 0 0 0 2px var(--primary); }
+
+/* custom chart lines */
+.lens-row { gap: 8px; flex-wrap: wrap; align-items: center; }
+.add-line { height: 32px; border-style: dashed; color: var(--muted); }
+.combo { position: relative; width: 240px; max-width: 100%; }
+.combo input { height: 32px; }
+.combo-list { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0; min-width: 260px; margin: 0; padding: 4px; list-style: none; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); box-shadow: 0 10px 30px rgba(0, 0, 0, .14); max-height: 320px; overflow-y: auto; }
+.combo-list li { display: flex; flex-direction: column; gap: 1px; padding: 7px 10px; border-radius: 6px; cursor: pointer; }
+.combo-list li.active { background: var(--primary-soft); }
+.combo-list li .name { font-weight: 600; }
+.combo-list li .sub { font-size: 12px; color: var(--muted); }
+.combo-list li.none { color: var(--muted); cursor: default; }
+.combo-list mark { background: none; color: var(--primary); font-weight: 750; }
+.line-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 10px 16px 0; }
+.line-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 4px 0 10px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); font-size: 13px; font-weight: 600; }
+.line-chip .dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.line-chip button { width: 22px; height: 22px; border: 0; border-radius: 999px; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
+.line-chip button:hover { background: var(--surface-3); color: var(--text); }
+@media (max-width: 640px) { .combo { width: 100%; } .combo-list { min-width: 0; } }

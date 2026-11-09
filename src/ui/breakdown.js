@@ -1,6 +1,7 @@
 // "Why": where a change in net worth comes from, and what drives the difference between scenarios.
 import { html, compact, signed, cls } from './h.js';
 import { attributionUpTo } from '../engine/simulate.js';
+import { durationLabel } from './chart.js';
 
 export const KIND_META = {
   income: { label: 'Income', color: '#16a34a' },
@@ -70,13 +71,13 @@ export function drivers(refRun, run, years, limit = 8) {
   return top;
 }
 
-export function DriversView({ refRun, run, years, refName, name }) {
+export function DriversView({ refRun, run, years, refName, name, start }) {
   const list = drivers(refRun, run, years);
   if (!list.length) return html`<div class="card-pad small muted">No differences in this period.</div>`;
   const max = Math.max(1, ...list.map(d => Math.abs(d.value)));
   const total = list.reduce((s, d) => s + d.value, 0);
   return html`<div class="card-pad">
-    <p class="small muted" style="margin:0 0 10px">How ${name} differs from ${refName} over the first ${years} years — positive bars help ${name}.</p>
+    <p class="small muted" style="margin:0 0 10px">How ${name} differs from ${refName} over the first ${start ? durationLabel(years, start) : `${years} years`} — positive bars help ${name}.</p>
     <${Bars} rows=${list.map(d => ({ label: `${d.label}`, value: d.value, color: KIND_META[d.kind]?.color || '#64748b' }))} max=${max} />
     <div class="bar-total"><span>Net difference in net worth</span><b class=${cls('num', total >= 0 ? 'pos' : 'neg')}>${signed(total)}</b></div>
   </div>`;

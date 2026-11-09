@@ -2,6 +2,9 @@
 import { useEffect, useRef } from 'preact/hooks';
 import uPlot from 'uplot';
 import { html, compact } from './h.js';
+import { windowDays } from './range.js';
+
+export { windowDays, nudgeWindow, durationLabel } from './range.js';
 
 const MAX_POINTS = 900;
 
@@ -88,9 +91,9 @@ export function Chart({ series, dates, range, height = 300, refLines = [], syncK
   return html`<div class="chart-wrap" ref=${host}></div>`;
 }
 
-// Index range for "next N years" from the run start.
+// Index range for the window from the run start.
 export function rangeFor(run, years) {
   if (!run) return [0, 0];
   if (!years || years === 'all') return [0, run.N - 1];
-  return [0, Math.min(run.N - 1, Math.round(years * 365.25))];
+  return [0, Math.min(run.N - 1, windowDays(years, run.start))];
 }
