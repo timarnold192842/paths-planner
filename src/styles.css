@@ -306,18 +306,18 @@ details.more[open] > summary { margin-bottom: 10px; }
   .paystub .tbl.compact th:first-child, .paystub .tbl.compact td:first-child { padding-left: 2px; }
 }
 
-/* chart range: presets + nudges */
-.range-picker { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; }
-.nudges { display: inline-flex; align-items: center; padding: 3px; gap: 2px; background: var(--surface-3); border-radius: 10px; }
-.nudges button { border: 0; background: transparent; padding: 5px 7px; border-radius: 7px; font-weight: 600; font-size: 12.5px; color: var(--muted); cursor: pointer; font-variant-numeric: tabular-nums; min-width: 34px; }
-.nudges button:hover:not(:disabled) { background: var(--surface); color: var(--text); }
+/* chart range: presets, with small ± nudges underneath */
+.range-picker { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.nudge-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.nudges { display: inline-flex; align-items: center; gap: 1px; }
+.nudges button { border: 0; background: transparent; padding: 2px 5px; border-radius: 5px; font-weight: 600; font-size: 11.5px; line-height: 1.4; color: var(--muted); cursor: pointer; font-variant-numeric: tabular-nums; }
+.nudges button:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
 .nudges button:disabled { opacity: .35; cursor: default; }
-.nudge-sep { width: 1px; align-self: stretch; margin: 3px 3px; background: var(--border-strong); }
-.range-label { white-space: nowrap; }
+.nudge-sep { width: 1px; height: 12px; margin: 0 3px; background: var(--border-strong); }
+.range-label { font-size: 11.5px; color: var(--faint); white-space: nowrap; }
 @media (max-width: 640px) {
-  .range-picker { width: 100%; }
-  .nudges { width: 100%; justify-content: space-between; }
-  .nudges button { flex: 1; min-width: 0; padding: 6px 2px; }
+  .range-picker { align-items: flex-start; }
+  .nudge-row { justify-content: flex-start; }
 }
 
 /* reorderable lists & collapsible groups */

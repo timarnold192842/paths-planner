@@ -29,7 +29,7 @@ export function LensPicker({ value, onChange }) {
     <select class="show-sm" value=${value} onChange=${e => onChange(e.target.value)} aria-label="Measure" style="width:auto">${LENSES.map(l => html`<option value=${l.id}>${LENS_SHORT[l.id]}</option>`)}</select>`;
 }
 
-const NUDGES = [['y', '1y', 'year'], ['m', '1mo', 'month'], ['w', '1w', 'week'], ['d', '1d', 'day']];
+const NUDGES = [['y', '1y', 'year'], ['m', '1mo', 'month'], ['w', '1w', 'week']];
 
 // Presets plus ± day / week / month / year nudges for the end of the chart window.
 export function RangePicker({ value, onChange, start, maxDays }) {
@@ -38,15 +38,17 @@ export function RangePicker({ value, onChange, start, maxDays }) {
   const days = Math.min(maxDays, full);
   const shown = full > maxDays ? maxDays / 365.25 : value;
   const btn = (u, l, name, dir) => html`<button type="button" title=${`End the chart 1 ${name} ${dir < 0 ? 'earlier' : 'later'}`} aria-label=${`${dir < 0 ? 'Minus' : 'Plus'} 1 ${name}`}
-    disabled=${dir < 0 ? days <= 1 : days >= maxDays} onClick=${() => nudge(u, dir)}>${dir < 0 ? '−' : '+'}${l}</button>`;
+    disabled=${dir < 0 ? days <= 7 : days >= maxDays} onClick=${() => nudge(u, dir)}>${dir < 0 ? '−' : '+'}${l}</button>`;
   return html`<div class="range-picker">
     <div class="seg" aria-label="Time range">${RANGES.map(([y, l]) => html`<button type="button" class=${y === value ? 'on' : ''} onClick=${() => onChange(y)}>${l}</button>`)}</div>
-    <div class="nudges" role="group" aria-label="Adjust the end of the chart">
-      ${NUDGES.map(([u, l, n]) => btn(u, l, n, -1))}
-      <span class="nudge-sep" aria-hidden="true"></span>
-      ${[...NUDGES].reverse().map(([u, l, n]) => btn(u, l, n, 1))}
+    <div class="nudge-row">
+      <div class="nudges" role="group" aria-label="Adjust the end of the chart">
+        ${NUDGES.map(([u, l, n]) => btn(u, l, n, -1))}
+        <span class="nudge-sep" aria-hidden="true"></span>
+        ${[...NUDGES].reverse().map(([u, l, n]) => btn(u, l, n, 1))}
+      </div>
+      <span class="range-label" aria-live="polite">to ${formatDate(toYMD(addDays(parseYMD(start), days)))} · ${durationLabel(shown, start)}</span>
     </div>
-    <span class="range-label small muted" aria-live="polite">Through ${formatDate(toYMD(addDays(parseYMD(start), days)))} · ${durationLabel(shown, start)}</span>
   </div>`;
 }
 

@@ -36,7 +36,7 @@ each April, dated amount changes, flows that stop when an asset is sold, and an 
 old Forecast app. The Plan lists can be reordered by dragging (mouse, touch or ↑/↓ on the grip),
 cash flows can be dragged between groups, and groups fold. The Overview chart can show any
 account, loan, account-type total or plan total (“+ Add line…”), and its range can be nudged by
-±1 day, week, month or year.
+±1 week, month or year.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the model and engine rules.
 
