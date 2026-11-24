@@ -441,6 +441,9 @@ body.is-sorting, body.is-sorting * { cursor: grabbing !important; user-select: n
 .nudges.xs button { height: 20px; padding: 0 4px; font-size: 10.5px; border-radius: 5px; }
 .nudges.xs .nudge-sep { height: 12px; margin: 0 2px; }
 .prow-fields .date-field { align-items: flex-end; }
+.prow.wide .prow-fields { grid-column: 2 / -1; align-items: flex-start; }
+.prow.wide .prow-fields .date-field { align-items: flex-start; }
+.prow.wide .more-btn { margin-left: auto; }
 .prow-more label { align-items: flex-start; line-height: 30px; }
 .nudges.xs button { line-height: 1; }
 .prow-more label { gap: 8px; }

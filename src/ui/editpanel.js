@@ -102,11 +102,12 @@ export function EditPanel({ scenarioId, onClose }) {
 
   const choices = useMemo(() => effectiveSelections(plan, scenarioId).choices, [plan, scenarioId]);
 
-  const row = (coll, item, fields, meta, more) => {
+  // `wide`: fields too big to share a line with the name (dates with nudges) go on their own line.
+  const row = (coll, item, fields, meta, more, wide = false) => {
     const off = item.enabled === false;
     // Gated by a decision this scenario didn't pick: switching it on/off changes nothing here.
     const idle = !!item.when && !isActive(item, choices, true);
-    return html`<div class=${cls('prow', off && 'off', idle && 'idle')} key=${item.id}>
+    return html`<div class=${cls('prow', off && 'off', idle && 'idle', wide && 'wide')} key=${item.id}>
       <${Switch} on=${!off} label=${`${off ? 'Include' : 'Exclude'} ${item.name}`} onChange=${v => edit(coll, item.id, 'enabled', v)} />
       <div class="prow-main">
         <button type="button" class="prow-name" title="Open the full editor" onClick=${() => setSheet({ coll, id: item.id })}>${item.name || item.type}</button>
@@ -164,7 +165,8 @@ export function EditPanel({ scenarioId, onClose }) {
       e.type === 'liquidate' && e.schedule ? html`<span class="small muted">${describeSchedule(e.schedule)}</span>` : html`<${LiveDate} value=${e.date} label=${`${e.name} date`} onCommit=${v => v && edit('events', e.id, 'date', v)} />`,
       `${{ sell: 'Sale', buy: 'Purchase', payoff: 'Payoff', liquidate: 'Share sale' }[e.type] || e.type}${e.assetId ? ` · ${name(e.assetId)}` : ''}${e.debtId ? ` · ${name(e.debtId)}` : ''}`,
       e.type === 'sell' || e.type === 'buy' ? html`<label><span class="pm-l">Price</span><${LiveNum} value=${e.price} width=${100} label="Price (empty = modeled value)" onCommit=${v => edit('events', e.id, 'price', v)} /></label>
-        ${e.type === 'sell' ? html`<label><span class="pm-l">Costs</span><${LiveNum} value=${e.costPct} width=${64} suffix="%" label="Selling costs" onCommit=${v => edit('events', e.id, 'costPct', v ?? 0)} /></label>` : null}` : null));
+        ${e.type === 'sell' ? html`<label><span class="pm-l">Costs</span><${LiveNum} value=${e.costPct} width=${64} suffix="%" label="Selling costs" onCommit=${v => edit('events', e.id, 'costPct', v ?? 0)} /></label>` : null}` : null,
+      !(e.type === 'liquidate' && e.schedule)));
   }
 
   return html`<aside class="edit-panel" aria-label="Edit plan">
