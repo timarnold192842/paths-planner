@@ -399,6 +399,7 @@ body.is-sorting, body.is-sorting * { cursor: grabbing !important; user-select: n
 .pgroup .chev { width: 12px; }
 .prow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 2px 10px; padding: 7px 14px; border-bottom: 1px solid var(--border); }
 .prow.off .prow-main, .prow.off .prow-fields { opacity: .5; }
+.prow.idle .prow-fields { opacity: .6; }
 .prow-main { min-width: 0; }
 .prow-name { display: block; max-width: 100%; padding: 0; border: 0; background: none; font: inherit; font-weight: 600; font-size: 13.5px; color: var(--text); text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prow-name:hover { color: var(--primary); text-decoration: underline; }

@@ -6,6 +6,7 @@ import { html, money, compact, signed, cls } from './h.js';
 import { store, useUI } from '../store.js';
 import { describeSchedule, perYear } from '../engine/schedule.js';
 import { formatMonthYear, parseYMD, toYMD, addDays, addMonths, addYears, todayYMD } from '../engine/dates.js';
+import { effectiveSelections, isActive } from '../engine/compile.js';
 import { ItemSheet, flowDirection, whenLabel } from './editors.js';
 import { getRun, scenarioName } from './runs.js';
 
@@ -99,13 +100,17 @@ export function EditPanel({ scenarioId, onClose }) {
     return [...plan.groups, { id: '', name: 'Ungrouped' }].map(g => ({ ...g, items: plan.flows.filter(f => (f.group || '') === g.id && match(f)) })).filter(g => g.items.length);
   }, [plan, tab, q]);
 
+  const choices = useMemo(() => effectiveSelections(plan, scenarioId).choices, [plan, scenarioId]);
+
   const row = (coll, item, fields, meta, more) => {
     const off = item.enabled === false;
-    return html`<div class=${cls('prow', off && 'off')} key=${item.id}>
+    // Gated by a decision this scenario didn't pick: switching it on/off changes nothing here.
+    const idle = !!item.when && !isActive(item, choices, true);
+    return html`<div class=${cls('prow', off && 'off', idle && 'idle')} key=${item.id}>
       <${Switch} on=${!off} label=${`${off ? 'Include' : 'Exclude'} ${item.name}`} onChange=${v => edit(coll, item.id, 'enabled', v)} />
       <div class="prow-main">
         <button type="button" class="prow-name" title="Open the full editor" onClick=${() => setSheet({ coll, id: item.id })}>${item.name || item.type}</button>
-        <div class="prow-meta">${meta}${item.when ? html` · <span class="badge blue">Only if: ${whenLabel(plan, item.when)}</span>` : ''}</div>
+        <div class="prow-meta">${meta}${item.when ? html` · <span class=${cls('badge', idle ? 'warn' : 'blue')} title=${idle ? `Not part of ${scenarioName(plan, scenarioId)}, so toggling it has no effect here. Switch to a scenario that picks this option to see it.` : ''}>${idle ? `Not in ${scenarioName(plan, scenarioId)} · ` : ''}Only if: ${whenLabel(plan, item.when)}</span>` : ''}</div>
       </div>
       <div class="prow-fields">${fields}
         ${more ? html`<button type="button" class=${cls('more-btn', open === item.id && 'on')} aria-expanded=${open === item.id} aria-label="More fields" title="Dates & growth" onClick=${() => setOpen(open === item.id ? null : item.id)}>⋯</button>` : null}
